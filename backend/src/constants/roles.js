@@ -1,0 +1,15 @@
+const ROLES = {
+  SUPER_ADMIN: 'SUPER_ADMIN',
+  MANAGER: 'MANAGER',
+  AGENT: 'AGENT',
+  CUSTOMER: 'CUSTOMER',
+};
+
+const ROLE_HIERARCHY = {
+  SUPER_ADMIN: 4,
+  MANAGER: 3,
+  AGENT: 2,
+  CUSTOMER: 1,
+};
+
+module.exports = { ROLES, ROLE_HIERARCHY };

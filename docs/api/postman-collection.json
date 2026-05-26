@@ -1,0 +1,593 @@
+{
+  "info": {
+    "_postman_id": "cs-ticket-platform-v1",
+    "name": "Customer Support & Ticket Management Platform - API v1",
+    "description": "Complete API collection for the Customer Support & Ticket Management Platform",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1", "type": "string" },
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "ticketId", "value": "1", "type": "string" },
+    { "key": "customerId", "value": "1", "type": "string" }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Authentication",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('accessToken', body.data.accessToken);",
+                  "  pm.test('Login successful', () => pm.response.to.have.status(200));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@support.com\",\n  \"password\": \"Admin@1234\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/refresh"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/logout"
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/forgot-password",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"user@example.com\"\n}" }
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/reset-password",
+            "body": { "mode": "raw", "raw": "{\n  \"token\": \"{{resetToken}}\",\n  \"newPassword\": \"NewPass@1234\",\n  \"confirmPassword\": \"NewPass@1234\"\n}" }
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/change-password",
+            "body": { "mode": "raw", "raw": "{\n  \"currentPassword\": \"Admin@1234\",\n  \"newPassword\": \"NewAdmin@1234\"\n}" }
+          }
+        },
+        {
+          "name": "Setup MFA",
+          "request": { "method": "POST", "url": "{{baseUrl}}/auth/mfa/setup" }
+        },
+        {
+          "name": "Verify MFA",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/mfa/verify",
+            "body": { "mode": "raw", "raw": "{\n  \"code\": \"123456\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Get All Users",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/users?page=1&limit=20&role=AGENT",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "role", "value": "AGENT" },
+                { "key": "search", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/users",
+            "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Jane\",\n  \"lastName\": \"Doe\",\n  \"email\": \"jane@support.com\",\n  \"password\": \"Temp@1234\",\n  \"roleId\": 3,\n  \"departmentId\": 1\n}" }
+          }
+        },
+        {
+          "name": "Get User by ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/users/{{userId}}" }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/users/{{userId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Jane\",\n  \"phone\": \"+1234567890\",\n  \"timezone\": \"America/New_York\"\n}" }
+          }
+        },
+        {
+          "name": "Delete User",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/users/{{userId}}" }
+        },
+        {
+          "name": "Lock/Unlock User",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/users/{{userId}}/lock",
+            "body": { "mode": "raw", "raw": "{\n  \"locked\": true\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tickets",
+      "item": [
+        {
+          "name": "Get All Tickets",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/tickets?page=1&limit=20&status=open&priority=high",
+              "host": ["{{baseUrl}}"],
+              "path": ["tickets"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "open" },
+                { "key": "priority", "value": "high" },
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "assignedTo", "value": "", "disabled": true },
+                { "key": "sortBy", "value": "created_at" },
+                { "key": "sortDir", "value": "desc" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Ticket",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('ticketId', body.data.id);",
+                  "  pm.test('Ticket created', () => pm.response.to.have.status(201));",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets",
+            "body": { "mode": "raw", "raw": "{\n  \"subject\": \"Cannot login to my account\",\n  \"description\": \"I keep getting an error when trying to login.\",\n  \"priority\": \"high\",\n  \"category\": \"Technical Issue\",\n  \"channelId\": 4,\n  \"customerId\": 1\n}" }
+          }
+        },
+        {
+          "name": "Get Ticket by ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/tickets/{{ticketId}}" }
+        },
+        {
+          "name": "Update Ticket",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets/{{ticketId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"status\": \"in_progress\",\n  \"priority\": \"medium\"\n}" }
+          }
+        },
+        {
+          "name": "Add Comment",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets/{{ticketId}}/comments",
+            "body": { "mode": "raw", "raw": "{\n  \"body\": \"<p>Thank you for reaching out. We are looking into this issue.</p>\",\n  \"isInternal\": false\n}" }
+          }
+        },
+        {
+          "name": "Add Internal Note",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets/{{ticketId}}/comments",
+            "body": { "mode": "raw", "raw": "{\n  \"body\": \"<p>Customer confirmed issue on Chrome 124.</p>\",\n  \"isInternal\": true\n}" }
+          }
+        },
+        {
+          "name": "Assign Ticket",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets/{{ticketId}}/assign",
+            "body": { "mode": "raw", "raw": "{\n  \"assignedTo\": 3,\n  \"teamId\": 1\n}" }
+          }
+        },
+        {
+          "name": "Escalate Ticket",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets/{{ticketId}}/escalate",
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"Customer is very upset, needs manager attention\",\n  \"escalateTo\": 2\n}" }
+          }
+        },
+        {
+          "name": "Add Tags to Ticket",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets/{{ticketId}}/tags",
+            "body": { "mode": "raw", "raw": "{\n  \"tagIds\": [1, 3]\n}" }
+          }
+        },
+        {
+          "name": "Get Ticket History",
+          "request": { "method": "GET", "url": "{{baseUrl}}/tickets/{{ticketId}}/history" }
+        },
+        {
+          "name": "Submit CSAT",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets/{{ticketId}}/csat",
+            "body": { "mode": "raw", "raw": "{\n  \"score\": 5,\n  \"comment\": \"Excellent support, resolved quickly!\"\n}" }
+          }
+        },
+        {
+          "name": "Merge Tickets",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/tickets/merge",
+            "body": { "mode": "raw", "raw": "{\n  \"sourceTicketId\": 3,\n  \"targetTicketId\": 1,\n  \"reason\": \"Duplicate issue\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "Get All Customers",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/customers?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["customers"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "search", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Customer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/customers",
+            "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"Alice\",\n  \"lastName\": \"Johnson\",\n  \"email\": \"alice@company.com\",\n  \"phone\": \"+1234567890\",\n  \"organizationId\": 1\n}" }
+          }
+        },
+        {
+          "name": "Get Customer by ID",
+          "request": { "method": "GET", "url": "{{baseUrl}}/customers/{{customerId}}" }
+        },
+        {
+          "name": "Update Customer",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/customers/{{customerId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"phone\": \"+9876543210\",\n  \"notes\": \"VIP customer\"\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "SLA",
+      "item": [
+        {
+          "name": "Get SLA Policies",
+          "request": { "method": "GET", "url": "{{baseUrl}}/sla/policies" }
+        },
+        {
+          "name": "Create SLA Policy",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/sla/policies",
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Custom SLA\",\n  \"priority\": \"high\",\n  \"customerTier\": \"all\",\n  \"frtHours\": 2,\n  \"rtHours\": 8,\n  \"useBusinessHours\": true\n}" }
+          }
+        },
+        {
+          "name": "Get Ticket SLA Timer",
+          "request": { "method": "GET", "url": "{{baseUrl}}/sla/tickets/{{ticketId}}/timer" }
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Admin Dashboard",
+          "request": { "method": "GET", "url": "{{baseUrl}}/dashboard/admin" }
+        },
+        {
+          "name": "Manager Dashboard",
+          "request": { "method": "GET", "url": "{{baseUrl}}/dashboard/manager" }
+        },
+        {
+          "name": "Agent Dashboard",
+          "request": { "method": "GET", "url": "{{baseUrl}}/dashboard/agent" }
+        }
+      ]
+    },
+    {
+      "name": "Knowledge Base",
+      "item": [
+        {
+          "name": "Get Articles",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/kb/articles?page=1&limit=20&status=published",
+              "host": ["{{baseUrl}}"],
+              "path": ["kb", "articles"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "published" },
+                { "key": "search", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Article",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/kb/articles",
+            "body": { "mode": "raw", "raw": "{\n  \"categoryId\": 1,\n  \"title\": \"How to Reset Password\",\n  \"body\": \"<h2>Steps</h2><ol><li>Click Forgot Password</li><li>Enter your email</li></ol>\",\n  \"isPublic\": true\n}" }
+          }
+        },
+        {
+          "name": "Get Categories",
+          "request": { "method": "GET", "url": "{{baseUrl}}/kb/categories" }
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "item": [
+        {
+          "name": "Ticket Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/reports/tickets?dateFrom=2026-01-01&dateTo=2026-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "tickets"],
+              "query": [
+                { "key": "dateFrom", "value": "2026-01-01" },
+                { "key": "dateTo", "value": "2026-12-31" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "SLA Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/reports/sla?dateFrom=2026-01-01&dateTo=2026-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "sla"],
+              "query": [
+                { "key": "dateFrom", "value": "2026-01-01" },
+                { "key": "dateTo", "value": "2026-12-31" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Agent Productivity Report",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/reports/agents?dateFrom=2026-01-01&dateTo=2026-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "agents"],
+              "query": [
+                { "key": "dateFrom", "value": "2026-01-01" },
+                { "key": "dateTo", "value": "2026-12-31" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Export Report (CSV)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/reports/export?reportType=tickets&format=csv&dateFrom=2026-01-01&dateTo=2026-12-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["reports", "export"],
+              "query": [
+                { "key": "reportType", "value": "tickets" },
+                { "key": "format", "value": "csv" },
+                { "key": "dateFrom", "value": "2026-01-01" },
+                { "key": "dateTo", "value": "2026-12-31" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "item": [
+        {
+          "name": "Get Notifications",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/notifications?page=1&limit=20&isRead=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["notifications"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "isRead", "value": "false" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Mark All Read",
+          "request": { "method": "PUT", "url": "{{baseUrl}}/notifications/read-all" }
+        },
+        {
+          "name": "Get Preferences",
+          "request": { "method": "GET", "url": "{{baseUrl}}/notifications/preferences" }
+        },
+        {
+          "name": "Update Preferences",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/notifications/preferences",
+            "body": { "mode": "raw", "raw": "{\n  \"preferences\": [\n    { \"eventType\": \"ticket_assigned\", \"inApp\": true, \"email\": true, \"sms\": false }\n  ]\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit Logs",
+      "item": [
+        {
+          "name": "Get Audit Logs",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/audit-logs?page=1&limit=50&module=tickets",
+              "host": ["{{baseUrl}}"],
+              "path": ["audit-logs"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "50" },
+                { "key": "module", "value": "tickets" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Settings",
+      "item": [
+        {
+          "name": "Get Settings",
+          "request": { "method": "GET", "url": "{{baseUrl}}/settings?category=security" }
+        },
+        {
+          "name": "Update Settings",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/settings",
+            "body": { "mode": "raw", "raw": "{\n  \"settings\": [\n    { \"category\": \"security\", \"keyName\": \"max_login_attempts\", \"value\": \"5\" },\n    { \"category\": \"general\", \"keyName\": \"company_name\", \"value\": \"My Company\" }\n  ]\n}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Customer Portal",
+      "item": [
+        {
+          "name": "Portal Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/portal/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"email\": \"customer@example.com\",\n  \"password\": \"Admin@1234\"\n}" }
+          }
+        },
+        {
+          "name": "Portal Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/portal/auth/register",
+            "body": { "mode": "raw", "raw": "{\n  \"firstName\": \"New\",\n  \"lastName\": \"Customer\",\n  \"email\": \"new@customer.com\",\n  \"password\": \"Secure@1234\"\n}" }
+          }
+        },
+        {
+          "name": "Portal - Get My Tickets",
+          "request": { "method": "GET", "url": "{{baseUrl}}/portal/tickets" }
+        },
+        {
+          "name": "Portal - Create Ticket",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/portal/tickets",
+            "body": { "mode": "raw", "raw": "{\n  \"subject\": \"Need help with my account\",\n  \"description\": \"I cannot access the settings page.\",\n  \"priority\": \"medium\"\n}" }
+          }
+        },
+        {
+          "name": "Portal - Get Public KB",
+          "request": { "method": "GET", "url": "{{baseUrl}}/portal/kb/articles" }
+        }
+      ]
+    }
+  ]
+}
