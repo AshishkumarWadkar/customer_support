@@ -228,15 +228,20 @@ const archiveArticle = async (id, user) => {
 /**
  * List articles with pagination and filters.
  * Customers see only published public articles.
- * Staff see everything (with optional status filter).
+ * Staff without kb.view_internal see only public articles (any status).
+ * Staff with kb.view_internal see all articles including internal ones.
  */
-const getArticles = async (query, user) => {
+const getArticles = async (query, user, userPermissions = new Set()) => {
   const includeNonPublished = user.role !== ROLES.CUSTOMER;
 
-  // Customers are implicitly filtered to published+public in the repo
   if (user.role === ROLES.CUSTOMER) {
+    // Customers: published + public only
     query = { ...query, status: 'published', isPublic: true };
+  } else if (!userPermissions.has('kb.view_internal')) {
+    // Staff without kb.view_internal: exclude internal (non-public) articles
+    query = { ...query, isPublic: true };
   }
+  // Staff with kb.view_internal: no additional filter — see everything
 
   return kbRepo.findAll(query, includeNonPublished);
 };

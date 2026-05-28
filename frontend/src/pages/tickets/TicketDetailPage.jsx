@@ -14,7 +14,9 @@ import {
   PlusIcon,
   TrashIcon,
   MagnifyingGlassIcon,
+  StarIcon,
 } from '@heroicons/react/24/outline';
+import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import toast from 'react-hot-toast';
 
 // ── Shared constants ──────────────────────────────────────────────────────────
@@ -447,6 +449,149 @@ const LinkedTicketsPanel = ({ ticketId, links: initialLinks, canEdit }) => {
   );
 };
 
+// ── CSAT Panel ───────────────────────────────────────────────────────────────
+
+const CSAT_LABELS = ['', 'Very Dissatisfied', 'Dissatisfied', 'Neutral', 'Satisfied', 'Very Satisfied'];
+const CSAT_COLORS = ['', 'text-red-500', 'text-orange-500', 'text-yellow-500', 'text-blue-500', 'text-green-500'];
+const CSAT_BG    = ['', 'bg-red-50 border-red-200', 'bg-orange-50 border-orange-200', 'bg-yellow-50 border-yellow-200', 'bg-blue-50 border-blue-200', 'bg-green-50 border-green-200'];
+
+/**
+ * CSATPanel — shown in the right sidebar.
+ * - For CUSTOMER on a resolved/closed ticket with no prior CSAT: shows submission form.
+ * - For CUSTOMER after submission: shows read-only confirmation.
+ * - For staff: shows the submitted score and comment if present.
+ */
+const CSATPanel = ({ ticket, onSubmitted }) => {
+  const { user } = useAuth();
+  const isCustomer = user?.role === 'CUSTOMER';
+  const isStaff    = !isCustomer;
+  const canSubmit  =
+    isCustomer &&
+    CLOSED_STATUSES.includes(ticket.status) &&
+    (ticket.csat_score === null || ticket.csat_score === undefined);
+  const alreadySubmitted = ticket.csat_score !== null && ticket.csat_score !== undefined;
+
+  const [hovered, setHovered]   = useState(0);
+  const [selected, setSelected] = useState(0);
+  const [comment, setComment]   = useState('');
+  const [saving, setSaving]     = useState(false);
+
+  // Staff view: nothing to show if no CSAT yet
+  if (isStaff && !alreadySubmitted) return null;
+
+  // Customer on open ticket: nothing to show
+  if (isCustomer && !CLOSED_STATUSES.includes(ticket.status) && !alreadySubmitted) return null;
+
+  const handleSubmit = async () => {
+    if (!selected) {
+      toast.error('Please select a rating before submitting');
+      return;
+    }
+    setSaving(true);
+    try {
+      await axiosInstance.post(`/tickets/${ticket.id}/csat`, {
+        score: selected,
+        comment: comment.trim() || undefined,
+      });
+      toast.success('Thank you for your feedback!');
+      onSubmitted();
+    } catch (err) {
+      const msg = err?.response?.data?.message || 'Failed to submit feedback. Please try again.';
+      toast.error(msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const displayScore = alreadySubmitted ? ticket.csat_score : 0;
+  const activeScore  = hovered || selected;
+
+  // ── Read-only display (staff view or after customer submission) ───────────
+  if (alreadySubmitted) {
+    return (
+      <div className={`rounded-lg border p-4 ${CSAT_BG[displayScore] || 'bg-slate-50 border-slate-200'}`}>
+        <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-1.5">
+          <StarIconSolid className="h-4 w-4 text-yellow-400" />
+          Customer Satisfaction
+        </h3>
+        <div className="flex items-center gap-1 mb-2">
+          {[1,2,3,4,5].map((s) => (
+            <StarIconSolid
+              key={s}
+              className={`h-6 w-6 transition-colors ${
+                s <= displayScore ? 'text-yellow-400' : 'text-slate-200'
+              }`}
+            />
+          ))}
+          <span className={`ml-2 text-sm font-semibold ${CSAT_COLORS[displayScore] || 'text-slate-600'}`}>
+            {CSAT_LABELS[displayScore]}
+          </span>
+        </div>
+        {ticket.csat_comment && (
+          <p className="text-sm text-slate-600 italic mt-2 border-t border-slate-200 pt-2">
+            &ldquo;{ticket.csat_comment}&rdquo;
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // ── Submission form (customer only, ticket resolved/closed) ───────────────
+  return (
+    <div className="bg-white rounded-lg border border-slate-200 p-4">
+      <h3 className="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+        <StarIcon className="h-4 w-4 text-slate-400" />
+        Rate Your Experience
+      </h3>
+      <p className="text-xs text-slate-400 mb-3">How satisfied are you with the resolution of this ticket?</p>
+
+      {/* Star picker */}
+      <div className="flex items-center gap-1 mb-2">
+        {[1,2,3,4,5].map((s) => (
+          <button
+            key={s}
+            type="button"
+            onMouseEnter={() => setHovered(s)}
+            onMouseLeave={() => setHovered(0)}
+            onClick={() => setSelected(s)}
+            className="focus:outline-none"
+            title={CSAT_LABELS[s]}
+          >
+            {s <= activeScore
+              ? <StarIconSolid className="h-7 w-7 text-yellow-400 transition-colors" />
+              : <StarIcon      className="h-7 w-7 text-slate-300 hover:text-yellow-300 transition-colors" />
+            }
+          </button>
+        ))}
+      </div>
+
+      {/* Label */}
+      {activeScore > 0 && (
+        <p className={`text-xs font-medium mb-3 ${CSAT_COLORS[activeScore]}`}>
+          {CSAT_LABELS[activeScore]}
+        </p>
+      )}
+
+      {/* Optional comment */}
+      <textarea
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        placeholder="Add a comment (optional)…"
+        rows={3}
+        className="w-full border border-slate-300 rounded-md p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+      />
+
+      <button
+        onClick={handleSubmit}
+        disabled={saving || !selected}
+        className="mt-2 w-full h-9 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+      >
+        {saving ? 'Submitting…' : 'Submit Feedback'}
+      </button>
+    </div>
+  );
+};
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 const TicketDetailPage = () => {
   const { id } = useParams();
@@ -631,6 +776,9 @@ const TicketDetailPage = () => {
               </div>
             </div>
           )}
+
+          {/* ── CSAT Panel ── */}
+          <CSATPanel ticket={ticket} onSubmitted={fetchTicket} />
 
           {/* ── Linked Tickets Panel ── */}
           <LinkedTicketsPanel

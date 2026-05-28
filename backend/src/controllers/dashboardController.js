@@ -24,4 +24,13 @@ const getManagerDashboard = async (req, res, next) => {
   }
 };
 
-module.exports = { getAdminDashboard, getManagerDashboard };
+const getAgentDashboard = async (req, res, next) => {
+  try {
+    const stats = await dashboardRepo.getAgentStats(req.user.id);
+    return sendSuccess(res, stats);
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { getAdminDashboard, getManagerDashboard, getAgentDashboard };

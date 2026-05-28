@@ -1,11 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middlewares/authMiddleware');
+const { mustChangePassword } = require('../middlewares/mustChangePasswordMiddleware');
 const { authorize } = require('../middlewares/rbacMiddleware');
 const adminController = require('../controllers/adminController');
 
 // All admin routes require authentication + SUPER_ADMIN role
-router.use(authenticate, authorize(['SUPER_ADMIN']));
+router.use(authenticate, mustChangePassword, authorize(['SUPER_ADMIN']));
 
 // ─── Users ────────────────────────────────────────────────────────────────────
 router.get('/users', adminController.listUsers);
@@ -23,5 +24,11 @@ router.post('/roles/bulk-revoke', adminController.bulkRevokeRole);
 
 // ─── Audit logs ───────────────────────────────────────────────────────────────
 router.get('/audit-logs', adminController.getAuditLogs);
+
+// ─── Ticket Categories ────────────────────────────────────────────────────────
+router.get('/ticket-categories',              adminController.listTicketCategories);
+router.post('/ticket-categories',             adminController.createTicketCategory);
+router.put('/ticket-categories/:id',          adminController.updateTicketCategory);
+router.patch('/ticket-categories/:id/toggle', adminController.toggleTicketCategory);
 
 module.exports = router;

@@ -366,4 +366,118 @@ const getManagerStats = async (departmentId = null) => {
   };
 };
 
-module.exports = { getAdminStats, getManagerStats };
+/**
+ * Aggregate stats for the agent dashboard.
+ * Scoped to the authenticated agent's own assigned tickets.
+ *
+ * Returns:
+ *   myOpenTickets, resolvedToday, pendingCustomerReply, slaBreached,
+ *   avgResolutionHours, ticketsByStatus[], ticketsByPriority[], weeklyTrend[]
+ *
+ * @param {number} agentId - The agent's user ID
+ */
+const getAgentStats = async (agentId) => {
+  const pool = getPool();
+
+  // 1. My open tickets
+  const [[{ myOpenTickets }]] = await pool.execute(
+    `SELECT COUNT(*) AS myOpenTickets
+     FROM tickets
+     WHERE deleted_at IS NULL
+       AND assigned_to = ?
+       AND status NOT IN ('resolved', 'closed')`,
+    [agentId]
+  );
+
+  // 2. Resolved by me today
+  const [[{ resolvedToday }]] = await pool.execute(
+    `SELECT COUNT(*) AS resolvedToday
+     FROM tickets
+     WHERE deleted_at IS NULL
+       AND assigned_to = ?
+       AND status IN ('resolved', 'closed')
+       AND DATE(resolved_at) = CURDATE()`,
+    [agentId]
+  );
+
+  // 3. Awaiting customer reply (my tickets)
+  const [[{ pendingCustomerReply }]] = await pool.execute(
+    `SELECT COUNT(*) AS pendingCustomerReply
+     FROM tickets
+     WHERE deleted_at IS NULL
+       AND assigned_to = ?
+       AND status = 'pending_customer'`,
+    [agentId]
+  );
+
+  // 4. SLA breached (my active tickets)
+  const [[{ slaBreached }]] = await pool.execute(
+    `SELECT COUNT(*) AS slaBreached
+     FROM tickets
+     WHERE deleted_at IS NULL
+       AND assigned_to = ?
+       AND sla_status = 'breached'
+       AND status NOT IN ('resolved', 'closed')`,
+    [agentId]
+  );
+
+  // 5. My average resolution time this month
+  const [[{ avgResolutionHours }]] = await pool.execute(
+    `SELECT ROUND(AVG(TIMESTAMPDIFF(HOUR, created_at, resolved_at)), 1) AS avgResolutionHours
+     FROM tickets
+     WHERE deleted_at IS NULL
+       AND assigned_to = ?
+       AND resolved_at IS NOT NULL
+       AND resolved_at >= DATE_FORMAT(NOW(), '%Y-%m-01')`,
+    [agentId]
+  );
+
+  // 6. My tickets by status (open only)
+  const [ticketsByStatus] = await pool.execute(
+    `SELECT status, COUNT(*) AS count
+     FROM tickets
+     WHERE deleted_at IS NULL
+       AND assigned_to = ?
+       AND status NOT IN ('resolved', 'closed')
+     GROUP BY status
+     ORDER BY count DESC`,
+    [agentId]
+  );
+
+  // 7. My open tickets by priority
+  const [ticketsByPriority] = await pool.execute(
+    `SELECT priority, COUNT(*) AS count
+     FROM tickets
+     WHERE deleted_at IS NULL
+       AND assigned_to = ?
+       AND status NOT IN ('resolved', 'closed')
+     GROUP BY priority
+     ORDER BY FIELD(priority, 'critical', 'high', 'medium', 'low')`,
+    [agentId]
+  );
+
+  // 8. My weekly trend — tickets assigned per day for the past 7 days
+  const [weeklyTrend] = await pool.execute(
+    `SELECT DATE_FORMAT(created_at, '%b %d') AS date, COUNT(*) AS count
+     FROM tickets
+     WHERE deleted_at IS NULL
+       AND assigned_to = ?
+       AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
+     GROUP BY DATE(created_at)
+     ORDER BY DATE(created_at) ASC`,
+    [agentId]
+  );
+
+  return {
+    myOpenTickets,
+    resolvedToday,
+    pendingCustomerReply,
+    slaBreached,
+    avgResolutionHours: avgResolutionHours || 0,
+    ticketsByStatus,
+    ticketsByPriority,
+    weeklyTrend,
+  };
+};
+
+module.exports = { getAdminStats, getManagerStats, getAgentStats };

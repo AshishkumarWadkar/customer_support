@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router({ mergeParams: true }); // mergeParams to access :id from parent router
 const slaController = require('../controllers/slaController');
 const { authenticate } = require('../middlewares/authMiddleware');
+const { mustChangePassword } = require('../middlewares/mustChangePasswordMiddleware');
 const { authorize } = require('../middlewares/rbacMiddleware');
 const { ROLES } = require('../constants/roles');
 
@@ -9,6 +10,7 @@ const ALL_STAFF   = [ROLES.SUPER_ADMIN, ROLES.MANAGER, ROLES.AGENT];
 const MANAGERS_UP = [ROLES.SUPER_ADMIN, ROLES.MANAGER];
 
 router.use(authenticate);
+router.use(mustChangePassword);
 
 // GET  /api/v1/tickets/:id/sla        — read the SLA timer (all staff)
 router.get('/',       authorize(ALL_STAFF),   slaController.getSlaTimer);

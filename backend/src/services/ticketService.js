@@ -298,9 +298,17 @@ const escalateTicket = async (ticketId, reason, escalateTo, user) => {
 };
 
 const addTags = async (ticketId, tagIds, user) => {
+  if (!Array.isArray(tagIds) || tagIds.length === 0) {
+    throw new ValidationError('tagIds must be a non-empty array');
+  }
+  const ids = tagIds.map(Number);
+  if (ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+    throw new ValidationError('All tagIds must be positive integers');
+  }
+
   const ticket = await ticketRepo.findById(ticketId);
   if (!ticket) throw new NotFoundError('Ticket');
-  await ticketRepo.addTags(ticketId, tagIds, user.id);
+  await ticketRepo.addTags(ticketId, ids, user.id);
   return ticketRepo.getTags(ticketId);
 };
 
@@ -374,10 +382,21 @@ const searchTickets = async (query, excludeTicketId) => {
 const submitCSAT = async (ticketId, score, comment, user) => {
   const ticket = await ticketRepo.findById(ticketId);
   if (!ticket) throw new NotFoundError('Ticket');
+
   if (!['resolved', 'closed'].includes(ticket.status)) {
     throw new ValidationError('CSAT can only be submitted for resolved or closed tickets');
   }
-  return ticketRepo.update(ticketId, { csat_score: score, csat_comment: comment || null }, user.id);
+
+  const numScore = Number(score);
+  if (!Number.isInteger(numScore) || numScore < 1 || numScore > 5) {
+    throw new ValidationError('CSAT score must be an integer between 1 and 5');
+  }
+
+  if (ticket.csat_score !== null && ticket.csat_score !== undefined) {
+    throw new ValidationError('CSAT feedback has already been submitted for this ticket');
+  }
+
+  return ticketRepo.update(ticketId, { csat_score: numScore, csat_comment: comment?.trim() || null }, user.id);
 };
 
 module.exports = {

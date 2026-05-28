@@ -27,6 +27,17 @@ const buildFilterConditions = (query, userRole, userId) => {
     params.push(s, s, s);
   }
 
+  // Tag filter: ?tagId=1 or ?tagId=1,2,3
+  let tagIds = [];
+  if (query.tagId) {
+    tagIds = String(query.tagId).split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0);
+  }
+  if (tagIds.length > 0) {
+    const placeholders = tagIds.map(() => '?').join(', ');
+    conditions.push(`EXISTS (SELECT 1 FROM ticket_tags tt WHERE tt.ticket_id = t.id AND tt.tag_id IN (${placeholders}))`);
+    params.push(...tagIds);
+  }
+
   return { conditions, params };
 };
 

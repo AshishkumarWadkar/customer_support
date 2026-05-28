@@ -19,8 +19,8 @@ const resetLimiter = rateLimit({
 
 router.post('/login', authLimiter, authController.login);
 router.post('/refresh', authController.refresh);
-router.post('/logout', authenticate, authController.logout);
-router.get('/me', authenticate, authController.getMe);
+router.post('/logout', authenticate, mustChangePassword, authController.logout);
+router.get('/me', authenticate, mustChangePassword, authController.getMe);
 router.post('/forgot-password', resetLimiter, authController.forgotPassword);
 router.post('/reset-password', authController.resetPassword);
 

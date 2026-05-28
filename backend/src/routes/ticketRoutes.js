@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const ticketController = require('../controllers/ticketController');
 const { authenticate } = require('../middlewares/authMiddleware');
+const { mustChangePassword } = require('../middlewares/mustChangePasswordMiddleware');
 const { authorize } = require('../middlewares/rbacMiddleware');
 const { ROLES } = require('../constants/roles');
 
@@ -10,6 +11,7 @@ const MANAGERS_UP = [ROLES.SUPER_ADMIN, ROLES.MANAGER];
 const ALL = [ROLES.SUPER_ADMIN, ROLES.MANAGER, ROLES.AGENT, ROLES.CUSTOMER];
 
 router.use(authenticate);
+router.use(mustChangePassword);
 
 // Static sub-routes must come BEFORE /:id to avoid param collision
 router.get('/agents', authorize(ALL_STAFF), ticketController.listAgents);

@@ -3,7 +3,11 @@ const { sendSuccess, sendCreated, sendPaginated, sendNoContent } = require('../u
 
 const list = async (req, res, next) => {
   try {
-    const { rows, total, page, limit } = await kbService.getArticles(req.query, req.user);
+    const { rows, total, page, limit } = await kbService.getArticles(
+      req.query,
+      req.user,
+      req.userPermissions
+    );
     return sendPaginated(res, rows, page, limit, total);
   } catch (err) {
     next(err);

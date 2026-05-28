@@ -175,6 +175,97 @@ const getAuditLogs = async (query) => {
   return { rows, total, page, limit };
 };
 
+// ─── Ticket Categories ────────────────────────────────────────────────────────
+
+/**
+ * Return all ticket categories, optionally filtered to active only.
+ * Each row includes a resolved parent_name for convenience.
+ */
+const findAllTicketCategories = async ({ activeOnly = false } = {}) => {
+  const where = activeOnly ? 'WHERE tc.is_active = 1' : '';
+  const [rows] = await getPool().execute(
+    `SELECT
+       tc.id, tc.parent_id, tc.name, tc.description, tc.is_active, tc.sort_order,
+       tc.created_at,
+       p.name AS parent_name
+     FROM ticket_categories tc
+     LEFT JOIN ticket_categories p ON tc.parent_id = p.id
+     ${where}
+     ORDER BY COALESCE(tc.parent_id, tc.id), tc.sort_order, tc.name`
+  );
+  return rows;
+};
+
+/**
+ * Find a single ticket category by id.
+ */
+const findTicketCategoryById = async (id) => {
+  const [rows] = await getPool().execute(
+    `SELECT tc.id, tc.parent_id, tc.name, tc.description, tc.is_active, tc.sort_order,
+            tc.created_at, p.name AS parent_name
+     FROM ticket_categories tc
+     LEFT JOIN ticket_categories p ON tc.parent_id = p.id
+     WHERE tc.id = ?`,
+    [id]
+  );
+  return rows[0] || null;
+};
+
+/**
+ * Check if a category name is already used (at the same parent level).
+ * Pass excludeId to ignore the current row when updating.
+ */
+const ticketCategoryNameExists = async (name, parentId, excludeId = null) => {
+  const params = [name, parentId === null ? null : parentId];
+  let sql =
+    'SELECT id FROM ticket_categories WHERE name = ? AND parent_id ' +
+    (parentId === null ? 'IS NULL' : '= ?');
+  if (excludeId) {
+    sql += ' AND id != ?';
+    params.push(excludeId);
+  }
+  const [rows] = await getPool().execute(sql, params);
+  return rows.length > 0;
+};
+
+/**
+ * Insert a new ticket category.
+ */
+const createTicketCategory = async ({ name, description, parentId, sortOrder }) => {
+  const [result] = await getPool().execute(
+    `INSERT INTO ticket_categories (parent_id, name, description, is_active, sort_order)
+     VALUES (?, ?, ?, 1, ?)`,
+    [parentId || null, name, description || null, sortOrder || 0]
+  );
+  return findTicketCategoryById(result.insertId);
+};
+
+/**
+ * Update fields on an existing ticket category.
+ * Only updates fields that are present in the `fields` object.
+ */
+const updateTicketCategory = async (id, fields) => {
+  const allowed = ['name', 'description', 'parent_id', 'is_active', 'sort_order'];
+  const sets = [];
+  const params = [];
+
+  for (const key of allowed) {
+    if (Object.prototype.hasOwnProperty.call(fields, key)) {
+      sets.push(`${key} = ?`);
+      params.push(fields[key]);
+    }
+  }
+
+  if (sets.length === 0) return findTicketCategoryById(id);
+
+  params.push(id);
+  await getPool().execute(
+    `UPDATE ticket_categories SET ${sets.join(', ')} WHERE id = ?`,
+    params
+  );
+  return findTicketCategoryById(id);
+};
+
 module.exports = {
   getAllRoles,
   findRoleByName,
@@ -185,4 +276,9 @@ module.exports = {
   countAdmins,
   writeAuditLog,
   getAuditLogs,
+  findAllTicketCategories,
+  findTicketCategoryById,
+  ticketCategoryNameExists,
+  createTicketCategory,
+  updateTicketCategory,
 };
