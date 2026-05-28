@@ -9,6 +9,7 @@ const MANAGERS_UP = [ROLES.SUPER_ADMIN, ROLES.MANAGER];
 
 router.use(authenticate);
 
-router.get('/admin', authorize(MANAGERS_UP), dashboardController.getAdminDashboard);
+router.get('/admin',   authorize(MANAGERS_UP),         dashboardController.getAdminDashboard);
+router.get('/manager', authorize([ROLES.MANAGER]),      dashboardController.getManagerDashboard);
 
 module.exports = router;
