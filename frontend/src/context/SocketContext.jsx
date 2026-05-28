@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
@@ -13,11 +13,23 @@ const SocketContext = createContext(null);
  * Provides a single shared Socket.IO connection for the entire app.
  * The connection is established when a staff user is authenticated and
  * torn down on logout or when the component unmounts.
+ *
+ * Also listens for role:updated events so that the current user's session
+ * is updated in real time when an admin changes their role.
  */
 export const SocketProvider = ({ children }) => {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const socketRef = useRef(null);
   const [connected, setConnected] = useState(false);
+
+  // Stable callback so the socket event handler does not capture a stale closure
+  const handleRoleUpdated = useCallback(
+    ({ role }) => {
+      if (!role) return;
+      updateUser({ role });
+    },
+    [updateUser]
+  );
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
@@ -59,7 +71,14 @@ export const SocketProvider = ({ children }) => {
       setConnected(false);
     });
 
+    // ── Role change notification ──────────────────────────────────────────
+    // When an admin changes this user's role the server emits role:updated
+    // to their private room. We update AuthContext + localStorage immediately
+    // so new permissions are reflected without requiring re-login.
+    socket.on('role:updated', handleRoleUpdated);
+
     return () => {
+      socket.off('role:updated', handleRoleUpdated);
       socket.disconnect();
       socketRef.current = null;
       setConnected(false);

@@ -30,6 +30,9 @@ export const ROUTES = {
   // Reports
   REPORTS: '/app/reports',
 
+  // Admin
+  ROLE_MANAGEMENT: '/app/admin/roles',
+
   // Knowledge Base
   KNOWLEDGE_BASE: '/app/knowledge-base',
   KB_ARTICLE: (id = ':id') => `/app/knowledge-base/${id}`,

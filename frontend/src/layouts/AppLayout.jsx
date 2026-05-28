@@ -7,6 +7,7 @@ import {
   BookOpenIcon, Cog6ToothIcon, BellIcon,
   ArrowRightOnRectangleIcon, Bars3Icon, XMarkIcon,
   ShieldCheckIcon, UserGroupIcon, ClipboardDocumentListIcon,
+  KeyIcon,
 } from '@heroicons/react/24/outline';
 
 const navItems = [
@@ -16,6 +17,7 @@ const navItems = [
   { label: 'Knowledge Base', path: ROUTES.KNOWLEDGE_BASE, icon: BookOpenIcon, roles: ['SUPER_ADMIN', 'MANAGER', 'AGENT'] },
   { label: 'Reports', path: ROUTES.REPORTS, icon: ChartBarIcon, roles: ['SUPER_ADMIN', 'MANAGER'] },
   { label: 'Teams', path: ROUTES.TEAMS, icon: UserGroupIcon, roles: ['SUPER_ADMIN', 'MANAGER'] },
+  { label: 'Role Management', path: ROUTES.ROLE_MANAGEMENT, icon: KeyIcon, roles: ['SUPER_ADMIN'] },
   { label: 'Audit Logs', path: ROUTES.AUDIT_LOGS, icon: ClipboardDocumentListIcon, roles: ['SUPER_ADMIN'] },
   { label: 'Settings', path: ROUTES.SETTINGS, icon: Cog6ToothIcon, roles: ['SUPER_ADMIN', 'MANAGER', 'AGENT'] },
 ];

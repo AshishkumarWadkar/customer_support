@@ -69,4 +69,18 @@ const emitTicketReassigned = (ticketId, payload) => {
   logger.info(`ticket:reassigned emitted for ticket ${ticketId}`);
 };
 
-module.exports = { initSocket, getIO, emitTicketReassigned };
+/**
+ * Notify a specific user that their role has changed.
+ * The event is sent only to the target user's private room so that their
+ * active browser session can update immediately without requiring re-login.
+ *
+ * @param {number} userId  - The user whose role was changed
+ * @param {object} payload - { role: 'NEW_ROLE_NAME' }
+ */
+const emitRoleUpdated = (userId, payload) => {
+  if (!io) return; // graceful no-op if sockets not up
+  io.to(`user:${userId}`).emit('role:updated', payload);
+  logger.info(`role:updated emitted for user ${userId} → role=${payload.role}`);
+};
+
+module.exports = { initSocket, getIO, emitTicketReassigned, emitRoleUpdated };

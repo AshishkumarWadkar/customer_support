@@ -1,19 +1,66 @@
 const { getPool } = require('../config/database');
 
 /**
- * Aggregate stats for the admin dashboard.
- * Returns: totalTickets, openTickets, resolvedToday, avgResolutionHours,
- *          slaComplianceRate, byStatus[], trend[], byPriority[], topAgents[]
+ * Resolve a time-range label into a MySQL INTERVAL expression and a
+ * human-readable trend date format.
+ *
+ * Supported values: 'today' | '7d' (default) | '30d'
+ *
+ * Returns { intervalExpr, trendDays, trendFormat }
+ *   intervalExpr — used in WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL ...)
+ *   trendDays    — number of days of trend data to return
+ *   trendFormat  — DATE_FORMAT pattern for trend X-axis labels
  */
-const getAdminStats = async () => {
-  const pool = getPool();
+const resolveRange = (range) => {
+  switch (range) {
+    case 'today':
+      return { intervalExpr: '0 DAY', trendDays: 0, trendFormat: '%H:00' };
+    case '30d':
+      return { intervalExpr: '29 DAY', trendDays: 29, trendFormat: '%b %d' };
+    case '7d':
+    default:
+      return { intervalExpr: '6 DAY', trendDays: 6, trendFormat: '%b %d' };
+  }
+};
 
-  // 1. Total non-deleted tickets
+/**
+ * Aggregate stats for the admin dashboard.
+ *
+ * @param {string} range  'today' | '7d' | '30d'  (default: '7d')
+ *
+ * Returns:
+ *   totalTickets        — tickets created within the selected range
+ *   openTickets         — active tickets (not resolved/closed), all time
+ *   resolvedToday       — tickets resolved today
+ *   avgResolutionHours  — avg resolution time in hours (resolved, all time)
+ *   slaComplianceRate   — % of tickets NOT breached (all time)
+ *   slaBreakdown        — { onTrack, atRisk, breached, paused, none } counts (all time, open only)
+ *   byStatus[]          — { status, count } (all time)
+ *   trend[]             — { date, count } within selected range
+ *   byPriority[]        — { priority, count } (all time)
+ *   topAgents[]         — top 5 by resolved this month
+ *   range               — echoed back so the client knows which window was used
+ */
+const getAdminStats = async (range = '7d') => {
+  const pool = getPool();
+  const { intervalExpr, trendDays, trendFormat } = resolveRange(range);
+
+  // Build the range filter used for totalTickets and trend
+  // 'today' uses DATE(created_at) = CURDATE(); others use an INTERVAL subtraction
+  const rangeFilter =
+    range === 'today'
+      ? 'AND DATE(created_at) = CURDATE()'
+      : `AND created_at >= DATE_SUB(CURDATE(), INTERVAL ${intervalExpr})`;
+
+  // 1. Total tickets created within the selected range
   const [[{ totalTickets }]] = await pool.execute(
-    `SELECT COUNT(*) AS totalTickets FROM tickets WHERE deleted_at IS NULL`
+    `SELECT COUNT(*) AS totalTickets
+     FROM tickets
+     WHERE deleted_at IS NULL
+       ${rangeFilter}`
   );
 
-  // 2. Open tickets (not resolved / closed)
+  // 2. Open tickets (not resolved / closed) — always all-time
   const [[{ openTickets }]] = await pool.execute(
     `SELECT COUNT(*) AS openTickets
      FROM tickets
@@ -21,7 +68,7 @@ const getAdminStats = async () => {
        AND status NOT IN ('resolved', 'closed')`
   );
 
-  // 3. Resolved today
+  // 3. Resolved today — always CURDATE()
   const [[{ resolvedToday }]] = await pool.execute(
     `SELECT COUNT(*) AS resolvedToday
      FROM tickets
@@ -30,7 +77,7 @@ const getAdminStats = async () => {
        AND DATE(resolved_at) = CURDATE()`
   );
 
-  // 4. Average resolution time in hours (resolved tickets only)
+  // 4. Average resolution time in hours (resolved tickets, all time)
   const [[{ avgResolutionHours }]] = await pool.execute(
     `SELECT ROUND(AVG(TIMESTAMPDIFF(HOUR, created_at, resolved_at)), 1) AS avgResolutionHours
      FROM tickets
@@ -38,7 +85,7 @@ const getAdminStats = async () => {
        AND resolved_at IS NOT NULL`
   );
 
-  // 5. SLA compliance rate (percentage of tickets NOT breached)
+  // 5. SLA compliance rate — % of all non-deleted tickets NOT breached
   const [[{ totalSla, breached }]] = await pool.execute(
     `SELECT
        COUNT(*) AS totalSla,
@@ -51,7 +98,27 @@ const getAdminStats = async () => {
       ? parseFloat(((1 - breached / totalSla) * 100).toFixed(1))
       : 100;
 
-  // 6. Tickets by status
+  // 6. SLA breakdown by status (open tickets only — gives actionable picture)
+  const [[slaBreakdownRow]] = await pool.execute(
+    `SELECT
+       SUM(CASE WHEN sla_status = 'on_track'  THEN 1 ELSE 0 END) AS onTrack,
+       SUM(CASE WHEN sla_status = 'at_risk'   THEN 1 ELSE 0 END) AS atRisk,
+       SUM(CASE WHEN sla_status = 'breached'  THEN 1 ELSE 0 END) AS breached,
+       SUM(CASE WHEN sla_status = 'paused'    THEN 1 ELSE 0 END) AS paused,
+       SUM(CASE WHEN sla_status = 'none'      THEN 1 ELSE 0 END) AS none
+     FROM tickets
+     WHERE deleted_at IS NULL
+       AND status NOT IN ('resolved', 'closed')`
+  );
+  const slaBreakdown = {
+    onTrack:  Number(slaBreakdownRow.onTrack  || 0),
+    atRisk:   Number(slaBreakdownRow.atRisk   || 0),
+    breached: Number(slaBreakdownRow.breached || 0),
+    paused:   Number(slaBreakdownRow.paused   || 0),
+    none:     Number(slaBreakdownRow.none     || 0),
+  };
+
+  // 7. Tickets by status (all time)
   const [byStatus] = await pool.execute(
     `SELECT status, COUNT(*) AS count
      FROM tickets
@@ -60,19 +127,34 @@ const getAdminStats = async () => {
      ORDER BY count DESC`
   );
 
-  // 7. Ticket trend — last 7 days
-  const [trend] = await pool.execute(
-    `SELECT
-       DATE_FORMAT(created_at, '%b %d') AS date,
-       COUNT(*) AS count
-     FROM tickets
-     WHERE deleted_at IS NULL
-       AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 DAY)
-     GROUP BY DATE(created_at)
-     ORDER BY DATE(created_at) ASC`
-  );
+  // 8. Ticket trend — within selected range
+  //    'today' groups by hour; 7d/30d group by calendar day
+  let trend;
+  if (range === 'today') {
+    [trend] = await pool.execute(
+      `SELECT
+         DATE_FORMAT(created_at, '${trendFormat}') AS date,
+         COUNT(*) AS count
+       FROM tickets
+       WHERE deleted_at IS NULL
+         AND DATE(created_at) = CURDATE()
+       GROUP BY HOUR(created_at)
+       ORDER BY HOUR(created_at) ASC`
+    );
+  } else {
+    [trend] = await pool.execute(
+      `SELECT
+         DATE_FORMAT(created_at, '${trendFormat}') AS date,
+         COUNT(*) AS count
+       FROM tickets
+       WHERE deleted_at IS NULL
+         AND created_at >= DATE_SUB(CURDATE(), INTERVAL ${trendDays} DAY)
+       GROUP BY DATE(created_at)
+       ORDER BY DATE(created_at) ASC`
+    );
+  }
 
-  // 8. Tickets by priority
+  // 9. Tickets by priority (all time)
   const [byPriority] = await pool.execute(
     `SELECT priority, COUNT(*) AS count
      FROM tickets
@@ -81,7 +163,7 @@ const getAdminStats = async () => {
      ORDER BY FIELD(priority, 'critical', 'high', 'medium', 'low')`
   );
 
-  // 9. Top agents by resolved tickets this month
+  // 10. Top agents by resolved tickets this month
   const [topAgents] = await pool.execute(
     `SELECT
        u.id,
@@ -104,10 +186,12 @@ const getAdminStats = async () => {
     resolvedToday,
     avgResolutionHours: avgResolutionHours || 0,
     slaComplianceRate,
+    slaBreakdown,
     byStatus,
     trend,
     byPriority,
     topAgents,
+    range,
   };
 };
 

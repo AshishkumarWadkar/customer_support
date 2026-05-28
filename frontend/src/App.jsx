@@ -20,6 +20,7 @@ const CustomerListPage = lazy(() => import('./pages/customers/CustomerListPage')
 const CustomerDetailPage = lazy(() => import('./pages/customers/CustomerDetailPage'));
 const SettingsPage = lazy(() => import('./pages/settings/SettingsPage'));
 const ProfilePage = lazy(() => import('./pages/settings/ProfilePage'));
+const RoleManagementPage = lazy(() => import('./pages/admin/RoleManagementPage'));
 
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-slate-50">
@@ -67,6 +68,10 @@ const App = () => {
                 <Route path="/app/customers/:id" element={<CustomerDetailPage />} />
                 <Route path={ROUTES.SETTINGS} element={<SettingsPage />} />
                 <Route path={ROUTES.PROFILE} element={<ProfilePage />} />
+                {/* Admin-only routes */}
+                <Route element={<PrivateRoute allowedRoles={['SUPER_ADMIN']} />}>
+                  <Route path={ROUTES.ROLE_MANAGEMENT} element={<RoleManagementPage />} />
+                </Route>
               </Route>
             </Route>
 

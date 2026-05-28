@@ -20,6 +20,7 @@ const ticketRoutes = require('./routes/ticketRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const slaRoutes = require('./routes/slaRoutes');
 const kbRoutes = require('./routes/kbRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 
@@ -80,6 +81,7 @@ app.use('/api/v1/tickets', ticketRoutes);
 app.use('/api/v1/tickets/:id/sla', slaRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/kb/articles', kbRoutes);
+app.use('/api/v1/admin', adminRoutes);
 
 // ─── 404 Handler ──────────────────────────────────────────────────────
 app.use((req, res) => {
