@@ -4,6 +4,7 @@ const http = require('http');
 const app = require('./app');
 const { testConnection } = require('./config/database');
 const { initSocket } = require('./config/socket');
+const { startSlaPoller } = require('./jobs/slaPoller');
 const logger = require('./utils/logger');
 const fs = require('fs');
 
@@ -23,6 +24,9 @@ const start = async () => {
 
   // Attach Socket.IO to the HTTP server
   initSocket(server);
+
+  // Start SLA breach-polling job (runs every 60 s)
+  startSlaPoller();
 
   server.listen(PORT, () => {
     logger.info(`Server running on http://localhost:${PORT}`);

@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { lazy, Suspense } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SocketProvider } from './context/SocketContext';
 import PrivateRoute from './routes/PrivateRoute';
 import { ROUTES } from './constants/routes';
 
@@ -43,6 +44,7 @@ const DashboardRedirect = () => {
 const App = () => {
   return (
     <AuthProvider>
+      <SocketProvider>
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>
@@ -73,6 +75,7 @@ const App = () => {
           </Routes>
         </Suspense>
       </BrowserRouter>
+      </SocketProvider>
 
       {/* Global toast notifications */}
       <Toaster

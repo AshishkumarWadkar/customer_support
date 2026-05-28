@@ -292,6 +292,8 @@ INSERT INTO settings (category, key_name, value, data_type, description) VALUES
 ('security',  'lockout_duration_mins', '30',                'integer','Account lockout duration in minutes'),
 ('security',  'session_timeout_mins',  '30',                'integer','Idle session timeout in minutes'),
 ('security',  'mfa_required',          'false',             'boolean','Force MFA for all users'),
+('security',  'password_min_length',   '8',                 'integer','Minimum password length'),
+('security',  'password_expiry_days',  '90',                'integer','Days before password expires and user must change it'),
 ('email',     'from_name',             'Support Team',      'string', 'Email sender display name'),
 ('email',     'smtp_host',             '',                  'string', 'SMTP server hostname'),
 ('email',     'smtp_port',             '587',               'integer','SMTP server port')

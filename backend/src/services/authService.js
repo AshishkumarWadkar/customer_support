@@ -2,6 +2,7 @@ const userRepo = require('../repositories/userRepository');
 const { hashPassword, comparePassword } = require('../utils/hashUtils');
 const { generateTokenPair, verifyRefreshToken } = require('../utils/jwtUtils');
 const { AuthError, ConflictError, ValidationError, NotFoundError } = require('../middlewares/errorMiddleware');
+const { validatePasswordComplexity } = require('../utils/passwordUtils');
 const { AUDIT_EVENTS } = require('../constants/auditEvents');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
@@ -108,7 +109,16 @@ const forgotPassword = async (email) => {
   return { token, user }; // Caller responsible for sending email
 };
 
-const resetPassword = async (token, newPassword) => {
+const resetPassword = async (token, newPassword, confirmPassword) => {
+  if (!newPassword) {
+    throw new ValidationError('New password is required');
+  }
+  if (newPassword !== confirmPassword) {
+    throw new ValidationError('Passwords do not match');
+  }
+
+  validatePasswordComplexity(newPassword);
+
   const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
   const pool = require('../config/database').getPool();
 
@@ -121,7 +131,7 @@ const resetPassword = async (token, newPassword) => {
     throw new ValidationError('Invalid or expired reset token');
   }
 
-  // Password history check
+  // Password history check — prevent reuse of last 5 passwords
   const history = await userRepo.getPasswordHistory(resetRecord.user_id);
   for (const oldHash of history) {
     const isReused = await comparePassword(newPassword, oldHash);
@@ -134,11 +144,17 @@ const resetPassword = async (token, newPassword) => {
   await userRepo.updatePassword(resetRecord.user_id, passwordHash);
   await userRepo.savePasswordHistory(resetRecord.user_id, passwordHash);
 
-  // Mark token as used
+  // Mark token as used to prevent replay attacks
   await pool.execute(`UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?`, [resetRecord.id]);
 };
 
 const changePassword = async (userId, currentPassword, newPassword) => {
+  if (!newPassword) {
+    throw new ValidationError('New password is required');
+  }
+
+  validatePasswordComplexity(newPassword);
+
   const user = await userRepo.findById(userId);
   const fullUser = await userRepo.findByEmail(user.email);
 
@@ -147,6 +163,7 @@ const changePassword = async (userId, currentPassword, newPassword) => {
     throw new ValidationError('Current password is incorrect');
   }
 
+  // Password history check — prevent reuse of last 5 passwords
   const history = await userRepo.getPasswordHistory(userId);
   for (const oldHash of history) {
     const isReused = await comparePassword(newPassword, oldHash);

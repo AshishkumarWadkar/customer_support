@@ -17,6 +17,9 @@ const { errorHandler } = require('./middlewares/errorMiddleware');
 // Route imports
 const authRoutes = require('./routes/authRoutes');
 const ticketRoutes = require('./routes/ticketRoutes');
+const dashboardRoutes = require('./routes/dashboardRoutes');
+const slaRoutes = require('./routes/slaRoutes');
+const kbRoutes = require('./routes/kbRoutes');
 
 const app = express();
 
@@ -74,6 +77,9 @@ app.get('/health', (_req, res) => {
 // ─── API Routes ───────────────────────────────────────────────────────
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/tickets', ticketRoutes);
+app.use('/api/v1/tickets/:id/sla', slaRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/kb/articles', kbRoutes);
 
 // ─── 404 Handler ──────────────────────────────────────────────────────
 app.use((req, res) => {

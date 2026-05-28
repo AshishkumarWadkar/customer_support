@@ -1,12 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { io } from 'socket.io-client';
 import axiosInstance from '../../api/axiosInstance';
+import { useSocket } from '../../context/SocketContext';
 import { ROUTES } from '../../constants/routes';
 import { PlusIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
-
-const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:5000';
 
 const STATUS_COLORS = {
   new: 'bg-violet-100 text-violet-700',
@@ -37,6 +35,7 @@ const Badge = ({ value, map }) => (
 
 const TicketListPage = () => {
   const navigate = useNavigate();
+  const { socket } = useSocket();
   const [tickets, setTickets] = useState([]);
   const [meta, setMeta] = useState({ page: 1, total: 0, totalPages: 1 });
   const [loading, setLoading] = useState(true);
@@ -73,32 +72,16 @@ const TicketListPage = () => {
   }, [fetchTickets]);
 
   // ── Real-time Socket.IO ──────────────────────────────────────────
+  // Uses the shared socket from SocketContext (one connection for the whole app).
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) return;
-
-    const socket = io(SOCKET_URL, {
-      auth: { token },
-      transports: ['websocket', 'polling'],
-      reconnectionAttempts: 5,
-      reconnectionDelay: 2000,
-    });
-
-    socket.on('connect', () => {
-      // Socket connected — no need to notify user
-    });
-
-    socket.on('connect_error', (err) => {
-      // Silently fail — ticket list still works via polling
-      console.warn('Socket connection error:', err.message);
-    });
+    if (!socket) return;
 
     /**
      * ticket:reassigned event payload:
      * { ticketId, ticketNumber, assignedTo, agentFirstName, agentLastName,
      *   teamId, status, reassignedBy, reassignedByName }
      */
-    socket.on('ticket:reassigned', (payload) => {
+    const handleReassigned = (payload) => {
       setTickets((prev) => {
         const exists = prev.some((t) => t.id === payload.ticketId);
         if (!exists) return prev; // ticket not in current page — ignore
@@ -107,26 +90,27 @@ const TicketListPage = () => {
           if (t.id !== payload.ticketId) return t;
           return {
             ...t,
-            assigned_to:  payload.assignedTo,
-            agent_first:  payload.agentFirstName,
-            agent_last:   payload.agentLastName,
-            team_id:      payload.teamId ?? t.team_id,
-            status:       payload.status ?? t.status,
+            assigned_to: payload.assignedTo,
+            agent_first: payload.agentFirstName,
+            agent_last:  payload.agentLastName,
+            team_id:     payload.teamId ?? t.team_id,
+            status:      payload.status ?? t.status,
           };
         });
       });
 
-      // Flash a subtle toast so any open tab sees the change
-      toast(`Ticket ${payload.ticketNumber} reassigned to ${payload.agentFirstName} ${payload.agentLastName}`, {
-        icon: '🔄',
-        duration: 3000,
-      });
-    });
+      toast(
+        `Ticket ${payload.ticketNumber} reassigned to ${payload.agentFirstName} ${payload.agentLastName}`,
+        { icon: '🔄', duration: 3000 }
+      );
+    };
+
+    socket.on('ticket:reassigned', handleReassigned);
 
     return () => {
-      socket.disconnect();
+      socket.off('ticket:reassigned', handleReassigned);
     };
-  }, []); // mount/unmount only — socket lifecycle is independent of filters
+  }, [socket]); // re-subscribe if the shared socket instance changes
 
   const updateFilter = (key, value) =>
     setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));

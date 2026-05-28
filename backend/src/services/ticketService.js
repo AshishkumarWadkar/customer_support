@@ -1,10 +1,16 @@
 const ticketRepo = require('../repositories/ticketRepository');
 const userRepo = require('../repositories/userRepository');
+const slaService = require('./slaService');
 const { NotFoundError, ForbiddenError, ValidationError } = require('../middlewares/errorMiddleware');
 const { TICKET_STATUS_TRANSITIONS } = require('../constants/ticketStatus');
 const { ROLES } = require('../constants/roles');
 const { emitTicketReassigned } = require('../config/socket');
 const logger = require('../utils/logger');
+
+// Ticket statuses that should pause the SLA timer
+const SLA_PAUSE_STATUSES = ['pending_customer'];
+// Ticket statuses that should resume the SLA timer (active work states)
+const SLA_RESUME_STATUSES = ['open', 'in_progress', 'escalated'];
 
 /**
  * Generate ticket number: TKT-YYYYMMDD-XXXXX
@@ -46,6 +52,15 @@ const createTicket = async (data, user) => {
     newValue: 'new',
     changeType: 'create',
   });
+
+  // Initialise SLA timer if a policy was assigned
+  if (ticket.sla_policy_id) {
+    try {
+      await slaService.initSlaTimer(ticket.id, ticket.sla_policy_id, ticket.created_at);
+    } catch (slaErr) {
+      logger.error(`Failed to init SLA timer for ticket ${ticket.id}: ${slaErr.message}`);
+    }
+  }
 
   logger.info(`Ticket ${ticket.ticket_number} created by user ${user.id}`);
   return ticket;
@@ -118,6 +133,21 @@ const updateTicket = async (id, fields, user) => {
     ...historyPromises,
   ]);
 
+  // SLA timer state changes triggered by status transitions
+  if (fields.status && fields.status !== ticket.status) {
+    try {
+      if (SLA_PAUSE_STATUSES.includes(fields.status)) {
+        await slaService.pauseTimer(id);
+      } else if (SLA_RESUME_STATUSES.includes(fields.status) && SLA_PAUSE_STATUSES.includes(ticket.status)) {
+        await slaService.resumeTimer(id);
+      } else if ((fields.status === 'resolved' || fields.status === 'closed')) {
+        await slaService.recordRtAchieved(id, dbFields.resolved_at || new Date());
+      }
+    } catch (slaErr) {
+      logger.error(`SLA state update failed for ticket ${id} on status change: ${slaErr.message}`);
+    }
+  }
+
   return updated;
 };
 
@@ -145,7 +175,14 @@ const addComment = async (ticketId, data, user) => {
 
   // Track first response time
   if (!ticket.first_response_at && authorType === 'agent') {
-    await ticketRepo.update(ticketId, { first_response_at: new Date() }, user.id);
+    const frtTime = new Date();
+    await ticketRepo.update(ticketId, { first_response_at: frtTime }, user.id);
+    // Record FRT achievement in SLA timer
+    try {
+      await slaService.recordFrtAchieved(ticketId, frtTime);
+    } catch (slaErr) {
+      logger.error(`Failed to record SLA FRT for ticket ${ticketId}: ${slaErr.message}`);
+    }
   }
 
   await ticketRepo.addHistory({

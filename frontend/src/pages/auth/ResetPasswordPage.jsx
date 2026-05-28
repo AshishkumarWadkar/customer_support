@@ -25,9 +25,9 @@ const ResetPasswordPage = () => {
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({ resolver: yupResolver(schema) });
 
-  const onSubmit = async ({ newPassword }) => {
+  const onSubmit = async ({ newPassword, confirmPassword }) => {
     try {
-      await axiosInstance.post('/auth/reset-password', { token, newPassword });
+      await axiosInstance.post('/auth/reset-password', { token, newPassword, confirmPassword });
       toast.success('Password reset successfully!');
       navigate(ROUTES.LOGIN);
     } catch (err) {
@@ -37,10 +37,21 @@ const ResetPasswordPage = () => {
 
   if (!token) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="text-center">
-          <p className="text-red-600">Invalid or missing reset token.</p>
-          <Link to={ROUTES.FORGOT_PASSWORD} className="text-blue-600 underline text-sm mt-2 block">Request new link</Link>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-950 to-blue-800 px-4">
+        <div className="w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-xl p-8 text-center space-y-4">
+            <div className="h-12 w-12 bg-red-100 rounded-full flex items-center justify-center mx-auto">
+              <ShieldCheckIcon className="h-6 w-6 text-red-500" />
+            </div>
+            <p className="font-semibold text-slate-800">Invalid or missing reset token</p>
+            <p className="text-slate-500 text-sm">This link is invalid or has already been used.</p>
+            <Link
+              to={ROUTES.FORGOT_PASSWORD}
+              className="inline-block text-blue-600 text-sm hover:underline"
+            >
+              Request a new reset link
+            </Link>
+          </div>
         </div>
       </div>
     );
