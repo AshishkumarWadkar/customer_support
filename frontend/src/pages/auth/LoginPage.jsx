@@ -25,7 +25,12 @@ const LoginPage = () => {
   const onSubmit = async (data) => {
     try {
       const user = await login(data.email, data.password);
-      navigate(ROUTES.DASHBOARD);
+      if (user.mustChangePassword) {
+        toast('Your password has expired. Please set a new password.', { icon: '🔒' });
+        navigate(ROUTES.PROFILE);
+      } else {
+        navigate(ROUTES.DASHBOARD);
+      }
     } catch (err) {
       toast.error(err?.response?.data?.message || 'Login failed. Please try again.');
     }

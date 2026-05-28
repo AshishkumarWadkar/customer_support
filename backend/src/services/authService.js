@@ -4,6 +4,7 @@ const { generateTokenPair, verifyRefreshToken } = require('../utils/jwtUtils');
 const { AuthError, ConflictError, ValidationError, NotFoundError } = require('../middlewares/errorMiddleware');
 const { validatePasswordComplexity } = require('../utils/passwordUtils');
 const { AUDIT_EVENTS } = require('../constants/auditEvents');
+const { sendPasswordResetEmail } = require('../utils/emailService');
 const logger = require('../utils/logger');
 const crypto = require('crypto');
 
@@ -44,12 +45,15 @@ const login = async (email, password, ip) => {
 
   await userRepo.updateLoginInfo(user.id, ip);
 
+  const mustChangePassword = user.must_change_password === 1;
+
   const tokenPayload = {
     id: user.id,
     email: user.email,
     role: user.role_name,
     firstName: user.first_name,
     lastName: user.last_name,
+    mustChangePassword,
   };
 
   const tokens = generateTokenPair(tokenPayload);
@@ -64,7 +68,7 @@ const login = async (email, password, ip) => {
       role: user.role_name,
       avatarUrl: user.avatar_url,
       timezone: user.timezone,
-      mustChangePassword: user.must_change_password === 1,
+      mustChangePassword,
     },
   };
 };
@@ -83,6 +87,7 @@ const refreshTokens = async (refreshToken) => {
       role: user.role,
       firstName: user.first_name,
       lastName: user.last_name,
+      mustChangePassword: user.must_change_password === 1,
     };
 
     return generateTokenPair(tokenPayload);
@@ -106,7 +111,12 @@ const forgotPassword = async (email) => {
   );
 
   logger.info(`Password reset token generated for user ${user.id}`);
-  return { token, user }; // Caller responsible for sending email
+
+  // Send reset email — fire-and-forget; errors are logged but do not bubble up
+  // to the caller so that email existence is not revealed via error differences.
+  sendPasswordResetEmail(user.email, user.first_name, token).catch((err) => {
+    logger.error(`Failed to send password reset email to user ${user.id}: ${err.message}`);
+  });
 };
 
 const resetPassword = async (token, newPassword, confirmPassword) => {
@@ -148,9 +158,12 @@ const resetPassword = async (token, newPassword, confirmPassword) => {
   await pool.execute(`UPDATE password_reset_tokens SET used_at = NOW() WHERE id = ?`, [resetRecord.id]);
 };
 
-const changePassword = async (userId, currentPassword, newPassword) => {
+const changePassword = async (userId, currentPassword, newPassword, confirmPassword) => {
   if (!newPassword) {
     throw new ValidationError('New password is required');
+  }
+  if (confirmPassword !== undefined && newPassword !== confirmPassword) {
+    throw new ValidationError('Passwords do not match');
   }
 
   validatePasswordComplexity(newPassword);

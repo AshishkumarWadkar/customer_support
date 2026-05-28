@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback } from 'react';
 import axiosInstance from '../api/axiosInstance';
 import toast from 'react-hot-toast';
 
@@ -15,6 +15,10 @@ export const AuthProvider = ({ children }) => {
   });
   const [loading, setLoading] = useState(false);
 
+  /**
+   * Attempt login. Returns { userData, mustChangePassword }.
+   * Callers (LoginPage) are responsible for navigating after login.
+   */
   const login = async (email, password) => {
     setLoading(true);
     try {

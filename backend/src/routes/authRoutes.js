@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 const { authenticate } = require('../middlewares/authMiddleware');
+const { mustChangePassword } = require('../middlewares/mustChangePasswordMiddleware');
 const rateLimit = require('express-rate-limit');
 
 const authLimiter = rateLimit({
@@ -22,6 +23,8 @@ router.post('/logout', authenticate, authController.logout);
 router.get('/me', authenticate, authController.getMe);
 router.post('/forgot-password', resetLimiter, authController.forgotPassword);
 router.post('/reset-password', authController.resetPassword);
-router.put('/change-password', authenticate, authController.changePassword);
+
+// change-password: authenticated + must_change_password is explicitly allowed by the middleware
+router.put('/change-password', authenticate, mustChangePassword, authController.changePassword);
 
 module.exports = router;
