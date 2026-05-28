@@ -1,10 +1,11 @@
 require('dotenv').config();
 
+const http = require('http');
 const app = require('./app');
 const { testConnection } = require('./config/database');
+const { initSocket } = require('./config/socket');
 const logger = require('./utils/logger');
 const fs = require('fs');
-const path = require('path');
 
 const PORT = process.env.PORT || 5000;
 
@@ -17,7 +18,13 @@ const start = async () => {
   // Test DB connection before accepting traffic
   await testConnection();
 
-  const server = app.listen(PORT, () => {
+  // Create HTTP server from Express app so Socket.IO can share the same port
+  const server = http.createServer(app);
+
+  // Attach Socket.IO to the HTTP server
+  initSocket(server);
+
+  server.listen(PORT, () => {
     logger.info(`Server running on http://localhost:${PORT}`);
     logger.info(`Environment: ${process.env.NODE_ENV}`);
     logger.info(`Health: http://localhost:${PORT}/health`);

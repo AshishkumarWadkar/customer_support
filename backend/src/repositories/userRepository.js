@@ -60,6 +60,56 @@ const findAll = async (query) => {
   return { rows, total, page, limit };
 };
 
+/**
+ * Lightweight agent list for assignment dropdowns.
+ * Returns all active AGENT and MANAGER users with their open-ticket workload count.
+ */
+const findAgents = async ({ teamId, search } = {}) => {
+  const conditions = [
+    'u.deleted_at IS NULL',
+    'u.is_active = 1',
+    "r.name IN ('AGENT', 'MANAGER', 'SUPER_ADMIN')",
+  ];
+  const params = [];
+
+  if (teamId) {
+    conditions.push('EXISTS (SELECT 1 FROM agent_teams at WHERE at.user_id = u.id AND at.team_id = ?)');
+    params.push(teamId);
+  }
+  if (search) {
+    conditions.push('(u.first_name LIKE ? OR u.last_name LIKE ? OR u.email LIKE ?)');
+    const s = `%${search}%`;
+    params.push(s, s, s);
+  }
+
+  const where = conditions.join(' AND ');
+
+  const [rows] = await getPool().execute(
+    `SELECT
+       u.id,
+       u.first_name,
+       u.last_name,
+       u.email,
+       u.avatar_url,
+       r.name AS role,
+       d.name AS department,
+       COALESCE(aa.status, 'offline') AS availability,
+       (SELECT COUNT(*) FROM tickets t
+        WHERE t.assigned_to = u.id
+          AND t.status NOT IN ('resolved','closed')
+          AND t.deleted_at IS NULL) AS open_ticket_count
+     FROM users u
+     JOIN roles r ON u.role_id = r.id
+     LEFT JOIN departments d ON u.department_id = d.id
+     LEFT JOIN agent_availability aa ON aa.user_id = u.id
+     WHERE ${where}
+     ORDER BY u.first_name ASC, u.last_name ASC`,
+    params
+  );
+
+  return rows;
+};
+
 const create = async (data) => {
   const { firstName, lastName, email, passwordHash, roleId, departmentId, phone, createdBy } = data;
   const [result] = await getPool().execute(
@@ -140,7 +190,7 @@ const savePasswordHistory = async (userId, passwordHash) => {
 };
 
 module.exports = {
-  findByEmail, findById, findAll, create, update,
+  findByEmail, findById, findAll, findAgents, create, update,
   updateLoginInfo, incrementFailedAttempts, lockAccount, unlockAccount,
   softDelete, updatePassword, getPasswordHistory, savePasswordHistory,
 };

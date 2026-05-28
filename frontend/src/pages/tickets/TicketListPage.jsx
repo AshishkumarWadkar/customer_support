@@ -1,9 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { io } from 'socket.io-client';
 import axiosInstance from '../../api/axiosInstance';
 import { ROUTES } from '../../constants/routes';
-import { PlusIcon, MagnifyingGlassIcon, FunnelIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
+
+const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api/v1', '') || 'http://localhost:5000';
 
 const STATUS_COLORS = {
   new: 'bg-violet-100 text-violet-700',
@@ -23,7 +26,11 @@ const PRIORITY_COLORS = {
 };
 
 const Badge = ({ value, map }) => (
-  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${map[value] || 'bg-slate-100 text-slate-600'}`}>
+  <span
+    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+      map[value] || 'bg-slate-100 text-slate-600'
+    }`}
+  >
     {value?.replace(/_/g, ' ')}
   </span>
 );
@@ -35,14 +42,19 @@ const TicketListPage = () => {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ search: '', status: '', priority: '', page: 1 });
 
+  // Keep a stable ref to tickets so the socket handler can read latest state
+  const ticketsRef = useRef(tickets);
+  useEffect(() => { ticketsRef.current = tickets; }, [tickets]);
+
+  // ── Data fetching ────────────────────────────────────────────────
   const fetchTickets = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (filters.search) params.set('search', filters.search);
-      if (filters.status) params.set('status', filters.status);
+      if (filters.search)   params.set('search',   filters.search);
+      if (filters.status)   params.set('status',   filters.status);
       if (filters.priority) params.set('priority', filters.priority);
-      params.set('page', filters.page);
+      params.set('page',  filters.page);
       params.set('limit', '20');
 
       const { data } = await axiosInstance.get(`/tickets?${params}`);
@@ -60,24 +72,83 @@ const TicketListPage = () => {
     return () => clearTimeout(timer);
   }, [fetchTickets]);
 
-  const updateFilter = (key, value) => setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
+  // ── Real-time Socket.IO ──────────────────────────────────────────
+  useEffect(() => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) return;
+
+    const socket = io(SOCKET_URL, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+    });
+
+    socket.on('connect', () => {
+      // Socket connected — no need to notify user
+    });
+
+    socket.on('connect_error', (err) => {
+      // Silently fail — ticket list still works via polling
+      console.warn('Socket connection error:', err.message);
+    });
+
+    /**
+     * ticket:reassigned event payload:
+     * { ticketId, ticketNumber, assignedTo, agentFirstName, agentLastName,
+     *   teamId, status, reassignedBy, reassignedByName }
+     */
+    socket.on('ticket:reassigned', (payload) => {
+      setTickets((prev) => {
+        const exists = prev.some((t) => t.id === payload.ticketId);
+        if (!exists) return prev; // ticket not in current page — ignore
+
+        return prev.map((t) => {
+          if (t.id !== payload.ticketId) return t;
+          return {
+            ...t,
+            assigned_to:  payload.assignedTo,
+            agent_first:  payload.agentFirstName,
+            agent_last:   payload.agentLastName,
+            team_id:      payload.teamId ?? t.team_id,
+            status:       payload.status ?? t.status,
+          };
+        });
+      });
+
+      // Flash a subtle toast so any open tab sees the change
+      toast(`Ticket ${payload.ticketNumber} reassigned to ${payload.agentFirstName} ${payload.agentLastName}`, {
+        icon: '🔄',
+        duration: 3000,
+      });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []); // mount/unmount only — socket lifecycle is independent of filters
+
+  const updateFilter = (key, value) =>
+    setFilters((prev) => ({ ...prev, [key]: value, page: 1 }));
 
   return (
     <div className="p-6">
-      {/* Header */}
+      {/* ── Header ── */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Tickets</h1>
           <p className="text-slate-500 text-sm mt-1">{meta.total} total tickets</p>
         </div>
-        <Link to={ROUTES.TICKET_CREATE}
-          className="flex items-center gap-2 px-4 h-9 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700">
+        <Link
+          to={ROUTES.TICKET_CREATE}
+          className="flex items-center gap-2 px-4 h-9 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
+        >
           <PlusIcon className="h-4 w-4" />
           New Ticket
         </Link>
       </div>
 
-      {/* Filters */}
+      {/* ── Filters ── */}
       <div className="bg-white rounded-lg border border-slate-200 p-4 mb-4 flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-48">
           <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
@@ -89,23 +160,31 @@ const TicketListPage = () => {
             className="w-full h-9 pl-9 pr-3 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
-        <select value={filters.status} onChange={(e) => updateFilter('status', e.target.value)}
-          className="h-9 px-3 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+
+        <select
+          value={filters.status}
+          onChange={(e) => updateFilter('status', e.target.value)}
+          className="h-9 px-3 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
           <option value="">All Statuses</option>
-          {['new','open','in_progress','pending_customer','escalated','resolved','closed'].map(s => (
+          {['new', 'open', 'in_progress', 'pending_customer', 'escalated', 'resolved', 'closed'].map((s) => (
             <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
           ))}
         </select>
-        <select value={filters.priority} onChange={(e) => updateFilter('priority', e.target.value)}
-          className="h-9 px-3 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+
+        <select
+          value={filters.priority}
+          onChange={(e) => updateFilter('priority', e.target.value)}
+          className="h-9 px-3 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
           <option value="">All Priorities</option>
-          {['critical','high','medium','low'].map(p => (
+          {['critical', 'high', 'medium', 'low'].map((p) => (
             <option key={p} value={p}>{p}</option>
           ))}
         </select>
       </div>
 
-      {/* Table */}
+      {/* ── Table ── */}
       <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
@@ -115,7 +194,7 @@ const TicketListPage = () => {
               <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase hidden md:table-cell">Customer</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase">Status</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase hidden lg:table-cell">Priority</th>
-              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase hidden xl:table-cell">Assigned</th>
+              <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase hidden xl:table-cell">Assigned To</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase hidden xl:table-cell">Created</th>
             </tr>
           </thead>
@@ -124,7 +203,9 @@ const TicketListPage = () => {
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={i}>
                   {Array.from({ length: 7 }).map((__, j) => (
-                    <td key={j} className="px-4 py-3"><div className="h-4 bg-slate-100 rounded animate-pulse" /></td>
+                    <td key={j} className="px-4 py-3">
+                      <div className="h-4 bg-slate-100 rounded animate-pulse" />
+                    </td>
                   ))}
                 </tr>
               ))
@@ -134,38 +215,69 @@ const TicketListPage = () => {
                   No tickets found
                 </td>
               </tr>
-            ) : tickets.map((ticket) => (
-              <tr key={ticket.id} onClick={() => navigate(ROUTES.TICKET_DETAIL(ticket.id))}
-                className="hover:bg-slate-50 cursor-pointer transition-colors">
-                <td className="px-4 py-3 font-mono text-xs text-slate-500">{ticket.ticket_number}</td>
-                <td className="px-4 py-3">
-                  <span className="font-medium text-slate-900 line-clamp-1">{ticket.subject}</span>
-                </td>
-                <td className="px-4 py-3 text-slate-600 hidden md:table-cell">{ticket.customer_name}</td>
-                <td className="px-4 py-3"><Badge value={ticket.status} map={STATUS_COLORS} /></td>
-                <td className="px-4 py-3 hidden lg:table-cell"><Badge value={ticket.priority} map={PRIORITY_COLORS} /></td>
-                <td className="px-4 py-3 text-slate-600 hidden xl:table-cell">
-                  {ticket.agent_first ? `${ticket.agent_first} ${ticket.agent_last}` : '—'}
-                </td>
-                <td className="px-4 py-3 text-slate-400 text-xs hidden xl:table-cell">
-                  {new Date(ticket.created_at).toLocaleDateString()}
-                </td>
-              </tr>
-            ))}
+            ) : (
+              tickets.map((ticket) => (
+                <tr
+                  key={ticket.id}
+                  onClick={() => navigate(ROUTES.TICKET_DETAIL(ticket.id))}
+                  className="hover:bg-slate-50 cursor-pointer transition-colors"
+                >
+                  <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                    {ticket.ticket_number}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="font-medium text-slate-900 line-clamp-1">{ticket.subject}</span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600 hidden md:table-cell">
+                    {ticket.customer_name}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Badge value={ticket.status} map={STATUS_COLORS} />
+                  </td>
+                  <td className="px-4 py-3 hidden lg:table-cell">
+                    <Badge value={ticket.priority} map={PRIORITY_COLORS} />
+                  </td>
+                  {/* Assigned To — updates in-place when ticket:reassigned fires */}
+                  <td className="px-4 py-3 text-slate-600 hidden xl:table-cell">
+                    {ticket.agent_first ? (
+                      <span className="flex items-center gap-1.5">
+                        <span className="h-5 w-5 rounded-full bg-blue-100 text-blue-700 text-xs flex items-center justify-center font-medium flex-shrink-0">
+                          {ticket.agent_first[0]}
+                        </span>
+                        {ticket.agent_first} {ticket.agent_last}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400 italic">Unassigned</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate-400 text-xs hidden xl:table-cell">
+                    {new Date(ticket.created_at).toLocaleDateString()}
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
 
         {/* Pagination */}
         {meta.totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t border-slate-200">
-            <p className="text-sm text-slate-500">Page {meta.page} of {meta.totalPages}</p>
+            <p className="text-sm text-slate-500">
+              Page {meta.page} of {meta.totalPages}
+            </p>
             <div className="flex gap-2">
-              <button disabled={meta.page <= 1} onClick={() => setFilters(f => ({ ...f, page: f.page - 1 }))}
-                className="px-3 h-8 border border-slate-300 rounded text-sm disabled:opacity-50 hover:bg-slate-50">
+              <button
+                disabled={meta.page <= 1}
+                onClick={() => setFilters((f) => ({ ...f, page: f.page - 1 }))}
+                className="px-3 h-8 border border-slate-300 rounded text-sm disabled:opacity-50 hover:bg-slate-50"
+              >
                 Previous
               </button>
-              <button disabled={meta.page >= meta.totalPages} onClick={() => setFilters(f => ({ ...f, page: f.page + 1 }))}
-                className="px-3 h-8 border border-slate-300 rounded text-sm disabled:opacity-50 hover:bg-slate-50">
+              <button
+                disabled={meta.page >= meta.totalPages}
+                onClick={() => setFilters((f) => ({ ...f, page: f.page + 1 }))}
+                className="px-3 h-8 border border-slate-300 rounded text-sm disabled:opacity-50 hover:bg-slate-50"
+              >
                 Next
               </button>
             </div>

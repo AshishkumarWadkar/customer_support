@@ -1,7 +1,9 @@
 const ticketRepo = require('../repositories/ticketRepository');
+const userRepo = require('../repositories/userRepository');
 const { NotFoundError, ForbiddenError, ValidationError } = require('../middlewares/errorMiddleware');
 const { TICKET_STATUS_TRANSITIONS } = require('../constants/ticketStatus');
 const { ROLES } = require('../constants/roles');
+const { emitTicketReassigned } = require('../config/socket');
 const logger = require('../utils/logger');
 
 /**
@@ -62,14 +64,15 @@ const getTicketById = async (id, user) => {
     throw new ForbiddenError('Access denied to this ticket');
   }
 
-  const [comments, history, tags, attachments] = await Promise.all([
+  const [comments, history, tags, attachments, links] = await Promise.all([
     ticketRepo.getComments(ticket.id, user.role !== ROLES.CUSTOMER),
     ticketRepo.getHistory(ticket.id),
     ticketRepo.getTags(ticket.id),
     ticketRepo.getAttachments(ticket.id),
+    ticketRepo.getLinks(ticket.id),
   ]);
 
-  return { ...ticket, comments, history, tags, attachments };
+  return { ...ticket, comments, history, tags, attachments, links };
 };
 
 const updateTicket = async (id, fields, user) => {
@@ -158,25 +161,78 @@ const addComment = async (ticketId, data, user) => {
   return comment;
 };
 
+// Statuses where reassignment is not allowed
+const CLOSED_STATUSES = ['resolved', 'closed'];
+
 const assignTicket = async (ticketId, assignedTo, teamId, user) => {
   const ticket = await ticketRepo.findById(ticketId);
   if (!ticket) throw new NotFoundError('Ticket');
 
+  // ── RBAC: only MANAGER and SUPER_ADMIN can reassign ──────────────
+  // Agents can only see the assign endpoint but cannot reassign a ticket
+  // that is already assigned to someone else.
+  if (user.role === ROLES.AGENT && ticket.assigned_to && ticket.assigned_to !== user.id) {
+    throw new ForbiddenError('Agents cannot reassign tickets assigned to other agents');
+  }
+
+  // ── Status guard: cannot reassign resolved or closed tickets ──────
+  if (CLOSED_STATUSES.includes(ticket.status)) {
+    throw new ValidationError(`Cannot reassign a ticket with status '${ticket.status}'`);
+  }
+
+  // ── Target agent must exist and be active ────────────────────────
+  const targetAgent = await userRepo.findById(assignedTo);
+  if (!targetAgent || !targetAgent.is_active) {
+    throw new NotFoundError('Agent');
+  }
+  if (![ROLES.AGENT, ROLES.MANAGER, ROLES.SUPER_ADMIN].includes(targetAgent.role)) {
+    throw new ValidationError('Tickets can only be assigned to agents or managers');
+  }
+
+  const previousAssignedTo = ticket.assigned_to;
+  const previousAgentName  = ticket.agent_first
+    ? `${ticket.agent_first} ${ticket.agent_last}`
+    : 'Unassigned';
+  const newAgentName = `${targetAgent.first_name} ${targetAgent.last_name}`;
+
+  // Transition status from 'new' → 'open' on first assignment
+  const newStatus = ticket.status === 'new' ? 'open' : ticket.status;
+
   const updated = await ticketRepo.update(
     ticketId,
-    { assigned_to: assignedTo, team_id: teamId || ticket.team_id, status: ticket.status === 'new' ? 'open' : ticket.status },
+    {
+      assigned_to: assignedTo,
+      team_id:     teamId ?? ticket.team_id,
+      status:      newStatus,
+    },
     user.id
   );
 
   await ticketRepo.addHistory({
     ticketId,
-    changedBy: user.id,
+    changedBy:     user.id,
     changedByName: `${user.firstName} ${user.lastName}`,
-    fieldName: 'assigned_to',
-    oldValue: String(ticket.assigned_to || ''),
-    newValue: String(assignedTo),
-    changeType: 'assign',
+    fieldName:     'assigned_to',
+    oldValue:      previousAssignedTo ? `${previousAgentName} (id:${previousAssignedTo})` : 'Unassigned',
+    newValue:      `${newAgentName} (id:${assignedTo})`,
+    changeType:    'assign',
   });
+
+  // ── Real-time broadcast to all connected staff ────────────────────
+  emitTicketReassigned(ticketId, {
+    ticketNumber:      updated.ticket_number,
+    assignedTo:        assignedTo,
+    agentFirstName:    targetAgent.first_name,
+    agentLastName:     targetAgent.last_name,
+    teamId:            updated.team_id,
+    status:            newStatus,
+    reassignedBy:      user.id,
+    reassignedByName:  `${user.firstName} ${user.lastName}`,
+  });
+
+  logger.info(
+    `Ticket ${updated.ticket_number} reassigned from "${previousAgentName}" to "${newAgentName}" by user ${user.id}`
+  );
 
   return updated;
 };
@@ -211,6 +267,73 @@ const addTags = async (ticketId, tagIds, user) => {
   return ticketRepo.getTags(ticketId);
 };
 
+const VALID_LINK_TYPES = ['related', 'duplicate', 'parent', 'child', 'blocked_by', 'blocks'];
+
+const linkTickets = async (ticketId, linkedTicketId, linkType, user) => {
+  const [ticket, target] = await Promise.all([
+    ticketRepo.findById(ticketId),
+    ticketRepo.findById(linkedTicketId),
+  ]);
+  if (!ticket) throw new NotFoundError('Ticket');
+  if (!target) throw new NotFoundError('Ticket to link');
+
+  if (!VALID_LINK_TYPES.includes(linkType)) {
+    throw new ValidationError(`Invalid link type. Allowed: ${VALID_LINK_TYPES.join(', ')}`);
+  }
+
+  const links = await ticketRepo.addLink(ticketId, linkedTicketId, linkType, user.id);
+
+  // Audit both tickets
+  await Promise.all([
+    ticketRepo.addHistory({
+      ticketId,
+      changedBy: user.id,
+      changedByName: `${user.firstName} ${user.lastName}`,
+      fieldName: 'link',
+      oldValue: null,
+      newValue: `Linked to ${target.ticket_number} as '${linkType}'`,
+      changeType: 'tag',
+    }),
+    ticketRepo.addHistory({
+      ticketId: linkedTicketId,
+      changedBy: user.id,
+      changedByName: `${user.firstName} ${user.lastName}`,
+      fieldName: 'link',
+      oldValue: null,
+      newValue: `Linked to ${ticket.ticket_number}`,
+      changeType: 'tag',
+    }),
+  ]);
+
+  logger.info(`Ticket ${ticket.ticket_number} linked to ${target.ticket_number} (${linkType}) by user ${user.id}`);
+  return links;
+};
+
+const unlinkTickets = async (ticketId, linkId, user) => {
+  const ticket = await ticketRepo.findById(ticketId);
+  if (!ticket) throw new NotFoundError('Ticket');
+
+  // removeLink throws if not found or not belonging to this ticket
+  await ticketRepo.removeLink(linkId, ticketId);
+
+  await ticketRepo.addHistory({
+    ticketId,
+    changedBy: user.id,
+    changedByName: `${user.firstName} ${user.lastName}`,
+    fieldName: 'link',
+    oldValue: `Link #${linkId}`,
+    newValue: 'Removed',
+    changeType: 'tag',
+  });
+
+  logger.info(`Link #${linkId} removed from ticket ${ticket.ticket_number} by user ${user.id}`);
+  return ticketRepo.getLinks(ticketId);
+};
+
+const searchTickets = async (query, excludeTicketId) => {
+  return ticketRepo.searchForLinking(query, excludeTicketId);
+};
+
 const submitCSAT = async (ticketId, score, comment, user) => {
   const ticket = await ticketRepo.findById(ticketId);
   if (!ticket) throw new NotFoundError('Ticket');
@@ -223,4 +346,5 @@ const submitCSAT = async (ticketId, score, comment, user) => {
 module.exports = {
   createTicket, getTickets, getTicketById, updateTicket,
   addComment, assignTicket, escalateTicket, addTags, submitCSAT,
+  linkTickets, unlinkTickets, searchTickets,
 };

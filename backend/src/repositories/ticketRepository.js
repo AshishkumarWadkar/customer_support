@@ -218,6 +218,154 @@ const getAttachments = async (ticketId) => {
   return rows;
 };
 
+// ── Ticket Links ─────────────────────────────────────────────────────────────
+
+/**
+ * Create a link between two tickets.
+ * Inserts one row per direction so both sides appear when we query by ticket_id.
+ */
+const addLink = async (ticketId, linkedTicketId, linkType, createdBy) => {
+  const pool = getPool();
+
+  // Prevent self-linking
+  if (Number(ticketId) === Number(linkedTicketId)) {
+    throw new Error('A ticket cannot be linked to itself');
+  }
+
+  // Prevent duplicate links in either direction
+  const [[existing]] = await pool.execute(
+    `SELECT id FROM ticket_links
+     WHERE (ticket_id = ? AND linked_ticket_id = ?)
+        OR (ticket_id = ? AND linked_ticket_id = ?)
+     LIMIT 1`,
+    [ticketId, linkedTicketId, linkedTicketId, ticketId]
+  );
+  if (existing) {
+    throw new Error('These tickets are already linked');
+  }
+
+  // Determine the inverse relationship type
+  const inverseMap = {
+    related:    'related',
+    duplicate:  'duplicate',
+    parent:     'child',
+    child:      'parent',
+    blocked_by: 'blocks',
+    blocks:     'blocked_by',
+  };
+  const inverseLinkType = inverseMap[linkType] || 'related';
+
+  // Insert both directions atomically
+  await pool.execute(
+    `INSERT INTO ticket_links (ticket_id, linked_ticket_id, link_type, created_by)
+     VALUES (?, ?, ?, ?), (?, ?, ?, ?)`,
+    [ticketId, linkedTicketId, linkType, createdBy || null,
+     linkedTicketId, ticketId, inverseLinkType, createdBy || null]
+  );
+
+  return getLinks(ticketId);
+};
+
+/**
+ * Return all links for a ticket with full linked-ticket details.
+ */
+const getLinks = async (ticketId) => {
+  const [rows] = await getPool().execute(
+    `SELECT
+       tl.id,
+       tl.link_type,
+       tl.created_by,
+       tl.created_at,
+       t.id            AS linked_ticket_id,
+       t.ticket_number AS linked_ticket_number,
+       t.subject       AS linked_ticket_subject,
+       t.status        AS linked_ticket_status,
+       t.priority      AS linked_ticket_priority,
+       u.first_name    AS linked_agent_first,
+       u.last_name     AS linked_agent_last
+     FROM ticket_links tl
+     JOIN tickets t ON t.id = tl.linked_ticket_id AND t.deleted_at IS NULL
+     LEFT JOIN users u ON u.id = t.assigned_to
+     WHERE tl.ticket_id = ?
+     ORDER BY tl.created_at ASC`,
+    [ticketId]
+  );
+  return rows;
+};
+
+/**
+ * Remove a link by its ID.
+ * Deletes BOTH directions (the row in each ticket's perspective).
+ */
+const removeLink = async (linkId, ticketId) => {
+  const pool = getPool();
+
+  // Find the link row to get both ticket IDs
+  const [[link]] = await pool.execute(
+    `SELECT ticket_id, linked_ticket_id FROM ticket_links WHERE id = ?`,
+    [linkId]
+  );
+  if (!link) throw new Error('Link not found');
+
+  // Verify the requesting ticket is one side of this link
+  const { ticket_id: tA, linked_ticket_id: tB } = link;
+  if (Number(tA) !== Number(ticketId) && Number(tB) !== Number(ticketId)) {
+    throw new Error('Link does not belong to this ticket');
+  }
+
+  // Delete both directional rows
+  await pool.execute(
+    `DELETE FROM ticket_links
+     WHERE (ticket_id = ? AND linked_ticket_id = ?)
+        OR (ticket_id = ? AND linked_ticket_id = ?)`,
+    [tA, tB, tB, tA]
+  );
+};
+
+/**
+ * Full-text search on tickets for the "link ticket" live-search dropdown.
+ * Searches ticket_number, subject, customer_name, and assignee name.
+ * Excludes the current ticket and already-linked tickets.
+ */
+const searchForLinking = async (query, excludeTicketId) => {
+  if (!query || query.trim().length < 2) return [];
+
+  const s = `%${query.trim()}%`;
+
+  // Get IDs already linked to excludeTicketId so we can exclude them
+  const [linkedRows] = await getPool().execute(
+    `SELECT linked_ticket_id FROM ticket_links WHERE ticket_id = ?`,
+    [excludeTicketId]
+  );
+  const excludedIds = [Number(excludeTicketId), ...linkedRows.map((r) => r.linked_ticket_id)];
+  const placeholders = excludedIds.map(() => '?').join(', ');
+
+  const [rows] = await getPool().execute(
+    `SELECT
+       t.id,
+       t.ticket_number,
+       t.subject,
+       t.status,
+       t.priority,
+       u.first_name AS agent_first,
+       u.last_name  AS agent_last
+     FROM tickets t
+     LEFT JOIN users u ON u.id = t.assigned_to
+     WHERE t.deleted_at IS NULL
+       AND t.id NOT IN (${placeholders})
+       AND (
+         t.ticket_number LIKE ?
+         OR t.subject     LIKE ?
+         OR t.customer_name LIKE ?
+         OR CONCAT(u.first_name, ' ', u.last_name) LIKE ?
+       )
+     ORDER BY t.created_at DESC
+     LIMIT 15`,
+    [...excludedIds, s, s, s, s]
+  );
+  return rows;
+};
+
 // Counter for ticket number generation
 const getTicketCountForToday = async () => {
   const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -234,5 +382,6 @@ module.exports = {
   addComment, getComments, addHistory, getHistory,
   addTags, getTags, removeTags,
   addAttachment, getAttachments,
+  addLink, getLinks, removeLink, searchForLinking,
   getTicketCountForToday,
 };

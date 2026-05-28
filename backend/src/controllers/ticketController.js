@@ -1,4 +1,5 @@
 const ticketService = require('../services/ticketService');
+const userRepo = require('../repositories/userRepository');
 const { sendSuccess, sendCreated, sendPaginated, sendNoContent } = require('../utils/responseUtils');
 
 const create = async (req, res, next) => {
@@ -59,8 +60,106 @@ const addComment = async (req, res, next) => {
 const assign = async (req, res, next) => {
   try {
     const { assignedTo, teamId } = req.body;
-    const ticket = await ticketService.assignTicket(req.params.id, assignedTo, teamId, req.user);
+
+    if (!assignedTo || isNaN(Number(assignedTo))) {
+      return res.status(400).json({
+        success: false,
+        message: 'assignedTo must be a valid agent user ID',
+        code: 'VALIDATION_ERROR',
+      });
+    }
+
+    const ticket = await ticketService.assignTicket(
+      req.params.id,
+      Number(assignedTo),
+      teamId ? Number(teamId) : undefined,
+      req.user
+    );
     return sendSuccess(res, ticket, 'Ticket assigned successfully');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /tickets/search?q=&exclude= — live-search for the link ticket dropdown
+const search = async (req, res, next) => {
+  try {
+    const { q, exclude } = req.query;
+    if (!q || String(q).trim().length < 2) {
+      return sendSuccess(res, []);
+    }
+    const results = await ticketService.searchTickets(
+      String(q).trim(),
+      exclude ? Number(exclude) : 0
+    );
+    return sendSuccess(res, results);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /tickets/:id/links — create a link between two tickets
+const createLink = async (req, res, next) => {
+  try {
+    const { linkedTicketId, linkType } = req.body;
+
+    if (!linkedTicketId || isNaN(Number(linkedTicketId))) {
+      return res.status(400).json({
+        success: false,
+        message: 'linkedTicketId must be a valid ticket ID',
+        code: 'VALIDATION_ERROR',
+      });
+    }
+    if (!linkType) {
+      return res.status(400).json({
+        success: false,
+        message: 'linkType is required',
+        code: 'VALIDATION_ERROR',
+      });
+    }
+
+    const links = await ticketService.linkTickets(
+      req.params.id,
+      Number(linkedTicketId),
+      linkType,
+      req.user
+    );
+    return sendCreated(res, links, 'Tickets linked successfully');
+  } catch (err) {
+    // Duplicate-link error comes back as a plain Error from the repo
+    if (err.message === 'These tickets are already linked' ||
+        err.message === 'A ticket cannot be linked to itself') {
+      return res.status(409).json({ success: false, message: err.message, code: 'CONFLICT' });
+    }
+    next(err);
+  }
+};
+
+// DELETE /tickets/:id/links/:linkId — remove a link
+const deleteLink = async (req, res, next) => {
+  try {
+    const links = await ticketService.unlinkTickets(
+      req.params.id,
+      Number(req.params.linkId),
+      req.user
+    );
+    return sendSuccess(res, links, 'Link removed successfully');
+  } catch (err) {
+    if (err.message === 'Link not found' || err.message === 'Link does not belong to this ticket') {
+      return res.status(404).json({ success: false, message: err.message, code: 'NOT_FOUND' });
+    }
+    next(err);
+  }
+};
+
+// GET /tickets/agents — list agents available for assignment dropdown
+const listAgents = async (req, res, next) => {
+  try {
+    const agents = await userRepo.findAgents({
+      teamId: req.query.teamId ? Number(req.query.teamId) : undefined,
+      search: req.query.search,
+    });
+    return sendSuccess(res, agents);
   } catch (err) {
     next(err);
   }
@@ -105,4 +204,8 @@ const submitCSAT = async (req, res, next) => {
   }
 };
 
-module.exports = { create, list, getById, update, remove, addComment, assign, escalate, addTags, getHistory, submitCSAT };
+module.exports = {
+  create, list, getById, update, remove,
+  addComment, assign, listAgents, escalate, addTags, getHistory, submitCSAT,
+  search, createLink, deleteLink,
+};
