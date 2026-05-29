@@ -3,6 +3,7 @@ require('dotenv').config();
 const http = require('http');
 const app = require('./app');
 const { testConnection } = require('./config/database');
+const { testRedisConnection, closeRedisConnection } = require('./config/redis');
 const { initSocket } = require('./config/socket');
 const { startSlaPoller } = require('./jobs/slaPoller');
 const logger = require('./utils/logger');
@@ -16,8 +17,9 @@ const PORT = process.env.PORT || 5000;
 });
 
 const start = async () => {
-  // Test DB connection before accepting traffic
+  // Test DB and Redis connections before accepting traffic
   await testConnection();
+  await testRedisConnection();
 
   // Create HTTP server from Express app so Socket.IO can share the same port
   const server = http.createServer(app);
@@ -37,8 +39,9 @@ const start = async () => {
   // Graceful shutdown
   const shutdown = (signal) => {
     logger.info(`${signal} received — shutting down gracefully`);
-    server.close(() => {
+    server.close(async () => {
       logger.info('HTTP server closed');
+      await closeRedisConnection();
       process.exit(0);
     });
   };

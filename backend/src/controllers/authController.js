@@ -51,7 +51,11 @@ const refresh = async (req, res, next) => {
 
 const logout = async (req, res, next) => {
   try {
-    res.clearCookie('refreshToken');
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
     return sendSuccess(res, null, 'Logged out successfully');
   } catch (err) {
     next(err);

@@ -27,20 +27,52 @@ services:
 
   # ─── Redis Cache ─────────────────────────────────────────────────
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine            # minimal Alpine image; runs as uid 999 (redis)
     container_name: support_redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    user: "999:999"                  # non-root redis user (uid:gid in redis:alpine)
+    security_opt:
+      - no-new-privileges:true       # prevent privilege escalation inside container
+    read_only: true                  # root filesystem is read-only
+    tmpfs:
+      - /tmp:size=64m,mode=1777      # Redis scratch space
+      - /var/run/redis:size=8m       # PID file location (see redis.conf pidfile)
+    # Port 6379 is NOT published to the host — Redis is reachable only on the
+    # internal Docker network. TLS listener is on 6380 (internal only).
+    # Remove the ports block entirely for production; keep for local dev only:
+    # ports:
+    #   - "127.0.0.1:6380:6380"
     volumes:
-      - redis_data:/data
+      - redis_data:/data                                  # AOF + RDB persistence
+      - ./redis.conf:/etc/redis/redis.conf:ro             # server config (read-only)
+      - ./redis-tls:/etc/redis/tls:ro                     # TLS certs (read-only)
     networks:
       - support_network
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redissecret}
+    # requirepass is passed on the command line so the secret is never written
+    # into redis.conf on disk. The config file sets port 0 (plain disabled) and
+    # tls-port 6380; this command loads that file then appends the password.
+    command: >
+      redis-server /etc/redis/redis.conf
+      --requirepass "${REDIS_PASSWORD:-redissecret}"
     healthcheck:
-      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-redissecret}", "ping"]
+      test:
+        - "CMD"
+        - "redis-cli"
+        - "--no-auth-warning"
+        - "-a"
+        - "${REDIS_PASSWORD:-redissecret}"
+        - "--tls"
+        - "--cert"
+        - "/etc/redis/tls/server.crt"
+        - "--key"
+        - "/etc/redis/tls/server.key"
+        - "--cacert"
+        - "/etc/redis/tls/ca.crt"
+        - "-p"
+        - "6380"
+        - "ping"
       interval: 10s
-      timeout: 3s
+      timeout: 5s
       retries: 3
 
   # ─── Backend API ─────────────────────────────────────────────────
@@ -64,8 +96,11 @@ services:
       DB_USER: ${DB_USER:-support_user}
       DB_PASSWORD: ${DB_PASSWORD:-supportpassword}
       REDIS_HOST: redis
-      REDIS_PORT: 6379
+      REDIS_PORT: 6380                                  # TLS port
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redissecret}
+      REDIS_TLS: "true"
+      REDIS_TLS_CA: /etc/redis/tls/ca.crt
+      REDIS_TLS_REJECT_UNAUTHORIZED: "true"             # set to "false" only for self-signed dev certs
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_ACCESS_EXPIRY: 1h
@@ -84,6 +119,7 @@ services:
     volumes:
       - backend_uploads:/app/uploads
       - backend_logs:/app/logs
+      - ./redis-tls/ca.crt:/etc/redis/tls/ca.crt:ro    # CA cert for Redis TLS verification
     networks:
       - support_network
     healthcheck:
@@ -110,9 +146,11 @@ services:
 
   # ─── Nginx Reverse Proxy ──────────────────────────────────────────
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27-alpine          # pinned minimal Alpine image
     container_name: support_nginx
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true        # prevent privilege escalation inside container
     depends_on:
       - backend
       - frontend
@@ -120,7 +158,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro   # read-only config mount
       - ./ssl:/etc/nginx/ssl:ro
     networks:
       - support_network
